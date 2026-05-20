@@ -256,7 +256,9 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
   100%{transform:scale(0) rotate(15deg);opacity:0;filter:brightness(0)}
 }
 
-/* damage number float */
+.istrip{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:2px;}
+.ibadge{font-size:10px;background:rgba(0,0,0,.6);border-radius:3px;padding:1px 2px;}
+.buff-badge{position:absolute;top:2px;right:2px;font-size:9px;font-weight:700;background:#2a5a1a;color:#9eff9e;border-radius:3px;padding:1px 3px;}
 .dmg-float{
   position:fixed;pointer-events:none;z-index:200;
   font-family:'Cinzel',serif;font-weight:700;font-size:26px;
@@ -464,6 +466,24 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
   </div>
 </div>
 
+<!-- ENEMY CARD DETAIL POPUP -->
+<div class="dp hid" id="ecard-detail-pop" onclick="this.classList.add('hid')">
+  <div class="dbox" onclick="event.stopPropagation()">
+    <div id="ecd-imgw"></div>
+    <div class="dbody">
+      <div style="font-size:9px;color:#aaa;margin-bottom:2px">การ์ดฝ่ายตรงข้าม</div>
+      <div class="dname" id="ecd-name">—</div>
+      <div class="dtype" id="ecd-type">—</div>
+      <div class="dstats" id="ecd-stats"></div>
+      <div class="deff" id="ecd-eff">—</div>
+      <div class="equip-list" id="ecd-items"></div>
+    </div>
+    <div class="dact">
+      <button class="dbt dbt-close" onclick="document.getElementById('ecard-detail-pop').classList.add('hid')">✕</button>
+    </div>
+  </div>
+</div>
+
 <!-- TARGET PICKER -->
 <div class="ov hid" id="tgtpop">
   <div class="mbox" style="max-width:500px">
@@ -592,7 +612,7 @@ function _listenRoom() {
   off(_roomRef);
 
   // listen เฉพาะ field ที่จำเป็น ไม่ใช่ทั้ง room (ป้องกัน lastAction trigger _handleRoom)
-  const paths = ['player2', 'status', 'GS', 'currentTurn', 'turnNum'];
+  const paths = ['player1', 'player2', 'status', 'GS', 'currentTurn', 'turnNum'];
   paths.forEach(p => {
     onValue(ref(db, 'rooms/' + _roomId + '/' + p), () => {
       // ดึง room ทั้งหมดมา handle ครั้งเดียว
@@ -612,7 +632,7 @@ function _handleRoom(room) {
     // ถ้าหน้าจอแสดง endov อยู่แล้ว ไม่ต้องทำซ้ำ
     if (document.getElementById('endov')?.classList.contains('hid') === false) return;
     const iWon = room.winnerRole === _myRole;
-    window.endGame?.(iWon ? 'me' : 'enemy', room.endReason || '');
+    window.endGame?.(iWon ? 'me' : 'enemy', iWon ? (room.winReason || '') : (room.loseReason || ''));
     return;
   }
 
@@ -663,9 +683,24 @@ function _handleRoom(room) {
     // ถ้าไม่ใช่เทิร์นเรา → swap กลับเพื่อให้ me=ตัวเอง enemy=คู่แข่งเสมอ
     const isOurTurn = (room.currentTurn === _myRole);
     if (!isOurTurn) {
-      window.GS = { me: room.GS.enemy, enemy: room.GS.me };
+      // ไม่ใช่เทิร์นเรา — swap กลับ และ track HP ที่เสียเพื่อ piggy
+      const prevMyHp = window.GS?.me?.hp;
+      const newMyHp  = room.GS.enemy.hp; // หลัง swap: enemy ใน Firebase = me ของเรา
+      const swapped  = { me: room.GS.enemy, enemy: room.GS.me };
+      // piggy: บวก HP ที่เสียระหว่างเทิร์นศัตรู
+      if(swapped.me.piggyActive && prevMyHp !== undefined && newMyHp < prevMyHp){
+        swapped.me.piggyDmgTaken = (swapped.me.piggyDmgTaken || 0) + (prevMyHp - newMyHp);
+      }
+      window.GS = swapped;
     } else {
+      // เทิร์นของเรากลับมา — preserve piggy ที่ track ไว้ก่อน overwrite
+      const savedPiggyDmgTaken = window.GS?.me?.piggyDmgTaken || 0;
+      const savedPiggyActive   = window.GS?.me?.piggyActive   || false;
       window.GS = room.GS;
+      if(savedPiggyActive){
+        window.GS.me.piggyActive    = true;
+        window.GS.me.piggyDmgTaken  = savedPiggyDmgTaken;
+      }
     }
     window.turnNum = room.turnNum || 1;
     window.isMyTurn = (room.currentTurn === _myRole);
@@ -676,8 +711,18 @@ function _handleRoom(room) {
     if (window.isMyTurn) {
       document.getElementById('batk').disabled = false;
       document.getElementById('bend').disabled = false;
+      // piggy bonus draw
+      const piggyBonus = window.GS?.me?.piggyDmgTaken || 0;
+      if(piggyBonus > 0 && window.GS?.me?.piggyActive){
+        window.drawCard?.('me', piggyBonus);
+        window.log?.(`🐷 ดอกเบี้ยทบต้น: จั่วเพิ่ม ${piggyBonus} ใบ!`, 'lh');
+        window.GS.me.piggyActive = false;
+        window.GS.me.piggyDmgTaken = 0;
+      }
       window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
       window.log('─── เทิร์น ' + window.turnNum + ' เริ่ม ───', 'li');
+      // popup แจ้งเทิร์น
+      _showTurnToast();
     } else {
       document.getElementById('batk').disabled = true;
       document.getElementById('bend').disabled = true;
@@ -838,11 +883,69 @@ function _listenActions() {
           setTimeout(() => el.remove(), 520);
         }
       }, 150);
+
+    } else if (a.type === 'direct') {
+      window.log?.(`🎯 [คู่แข่ง] โจมตีตรง -${a.dmg} HP!`, 'la');
+      // ลด HP ของเรา realtime ก่อน GS sync
+      if (window.GS?.me) {
+        const hpBefore = window.GS.me.hp;
+        window.GS.me.hp = Math.max(0, window.GS.me.hp - a.dmg);
+        // piggy tracking
+        if (window.GS.me.piggyActive) {
+          window.GS.me.piggyDmgTaken = (window.GS.me.piggyDmgTaken || 0) + (hpBefore - window.GS.me.hp);
+        }
+        window.renderAll?.();
+        // damage number บน orb เรา
+        const orbEl = document.getElementById('mhp') || document.querySelector('.mhp');
+        if (orbEl) {
+          const r = orbEl.getBoundingClientRect();
+          window.showDamage?.(r.left + r.width/2, r.top + r.height/2, a.dmg, '#ff4444');
+          orbEl.style.animation = 'none';
+          void orbEl.offsetWidth;
+          orbEl.style.animation = 'hpshake .4s ease';
+        }
+      }
     }
   });
 }
 
-// ====== Push endGame ขึ้น Firebase และรับฝั่งตรงข้าม ======
+function _showTurnToast() {
+  const old = document.getElementById('turn-toast');
+  if (old) old.remove();
+  const toast = document.createElement('div');
+  toast.id = 'turn-toast';
+  toast.innerHTML = '⚔ เทิร์นของคุณ!';
+  toast.style.cssText = `
+    position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) scale(.5);
+    background:linear-gradient(135deg,#2a1200,#5a3000);
+    color:#f4e8c1;font-family:'Cinzel',serif;font-weight:700;font-size:28px;
+    padding:18px 40px;border-radius:12px;border:2px solid rgba(201,162,39,.8);
+    box-shadow:0 0 40px rgba(255,150,0,.5);z-index:999;pointer-events:none;
+    animation:turntoast .6s cubic-bezier(.175,.885,.32,1.275) forwards;
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'turntoastout .4s ease-in forwards';
+    setTimeout(() => toast.remove(), 400);
+  }, 1800);
+}
+
+// inject CSS สำหรับ toast
+const toastStyle = document.createElement('style');
+toastStyle.textContent = `
+  @keyframes turntoast {
+    0%{transform:translate(-50%,-50%) scale(.5);opacity:0}
+    100%{transform:translate(-50%,-50%) scale(1);opacity:1}
+  }
+  @keyframes hpshake {
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-6px)}
+    40%{transform:translateX(6px)}
+    60%{transform:translateX(-4px)}
+    80%{transform:translateX(4px)}
+  }
+`;
+document.head.appendChild(toastStyle);
 window._onlineEndGame = function(winner, reason) {
   if (!_roomId) return;
   // winner คือ 'me' หรือ 'enemy' จากมุมมองคนที่ endGame ถูกเรียก
@@ -851,7 +954,10 @@ window._onlineEndGame = function(winner, reason) {
   update(_roomRef, {
     status: 'ended',
     winnerRole,
-    endReason: reason
+    winReason: reason,
+    loseReason: reason === 'เลือดของศัตรูหมดแล้ว!' ? 'เลือดของคุณหมดแล้ว!'
+               : reason === 'เลือดของคุณหมดแล้ว!'   ? 'เลือดของศัตรูหมดแล้ว!'
+               : reason
   });
 };
 window.addEventListener('load', () => {
@@ -1227,7 +1333,6 @@ function buildMyCard(card,ctx){
 function buildECard(card){
   const hasTgt=attackers.length>0&&atkMode&&isMyTurn&&turnNum>1;
   const tnt=GS.enemy.field.find(c=>c.taunt);
-  // ลูกน้อง ไซน์: ถ้ายังมีหัวหน้าในสนาม → โจมตีไม่ได้
   const bossAlive=GS.enemy.field.find(c=>c.id==='m_boss');
   const isJnrBlocked = card.id==='m_jnr' && bossAlive && bossAlive.uid!==card.uid;
   const canTgt=hasTgt&&(!tnt||tnt.uid===card.uid)&&!isJnrBlocked;
@@ -1241,9 +1346,72 @@ function buildECard(card){
     <div class="cbody"><div class="ceff" style="color:rgba(244,232,193,.55)">${card.eff||''}</div></div>
     <div class="cft" style="background:rgba(0,0,0,.3)"><span class="stat sa">⚔${card.cAtk}</span><span class="stat sh">♥${card.cHp}</span></div>
     ${card.sh?'<div class="sbadge">🛡️</div>':''}
+    ${card.items&&card.items.length?`<div class="istrip">${card.items.map(i=>`<span class="ibadge" title="${i.name}">🔧</span>`).join('')}</div>`:''}
+    ${card.tempBuff>0?`<div class="buff-badge">+${card.tempBuff}</div>`:''}
+    ${card.hasSwordCurse?'<div class="buff-badge" style="background:#7a1a1a">⚔×2</div>':''}
+    ${card.doubleAtk?'<div class="buff-badge" style="background:#1a3a7a">×2</div>':''}
   `;
-  if(canTgt)el.onclick=e=>{e.stopPropagation();atkTarget(card.uid);};
+  if(canTgt) el.onclick=e=>{e.stopPropagation();atkTarget(card.uid);};
+  else el.onclick=e=>{e.stopPropagation();showEnemyCardDetail(card);};
   return el;
+}
+
+// popup รายละเอียดการ์ดฝ่ายตรงข้าม
+function showEnemyCardDetail(card){
+  const pop = document.getElementById('ecard-detail-pop');
+  if(!pop) return;
+  pop.querySelector('#ecd-name').textContent = card.name;
+  pop.querySelector('#ecd-type').textContent = {unit:'ยูนิท',action:'แอคชั่น',item:'ไอเทม'}[card.t]||card.t;
+  pop.querySelector('#ecd-stats').innerHTML = card.t==='unit'
+    ? `<span class="stat sa" style="font-size:13px">⚔ ${card.cAtk}</span><span class="stat sh" style="font-size:13px">♥ ${card.cHp}</span>${card.sh?'<span style="font-size:17px">🛡️</span>':''}`
+    : '';
+  pop.querySelector('#ecd-eff').innerHTML = addGlossaryTooltips(card.eff||'ไม่มีเอฟเฟกต์พิเศษ');
+  pop.querySelector('#ecd-items').textContent = card.items&&card.items.length ? '🔧 สวมใส่: '+card.items.map(i=>i.name).join(', ') : '';
+  const wrap = pop.querySelector('#ecd-imgw'); wrap.innerHTML='';
+  const src=getImg(card.dn,card.img);
+  if(src){const img=document.createElement('img');img.className='dimg';img.src=src;wrap.appendChild(img);}
+  else{wrap.innerHTML='<div class="dimgph">🃏</div>';}
+  pop.classList.remove('hid');
+}
+
+// คำศัพท์เฉพาะ
+const GLOSSARY = {
+  'ออร์บ': 'ออร์บ = จุดชีวิตหลักของผู้เล่น ถ้าลดเหลือ 0 แพ้ทันที',
+  'สุสาน': 'สุสาน = กองทิ้ง การ์ดที่ถูกทำลายหรือใช้แล้วจะมาอยู่ที่นี่',
+  'โล่': 'โล่ (🛡️) = ยูนิทที่มีโล่ต้องถูกกำจัดก่อนที่ฝ่ายตรงข้ามจะตีตรงออร์บได้',
+  'ตีตรง': 'ตีตรง = โจมตีออร์บของฝ่ายตรงข้ามโดยตรง ไม่ผ่านยูนิท',
+  'exhausted': 'exhausted = การ์ดที่เพิ่งลงสนามหรือโจมตีแล้ว ไม่สามารถโจมตีซ้ำในเทิร์นเดียวกัน',
+  'จั่ว': 'จั่ว = หยิบการ์ดจากกองมาเพิ่มในมือ',
+  'ATK': 'ATK (⚔) = พลังโจมตีของยูนิท',
+  'HP': 'HP (♥) = พลังชีวิตของยูนิท ถ้าลดเหลือ 0 จะถูกทำลาย',
+};
+
+function addGlossaryTooltips(text){
+  let result = text;
+  Object.entries(GLOSSARY).forEach(([term, def])=>{
+    const regex = new RegExp(`(${term})`, 'g');
+    result = result.replace(regex,
+      `<span class="glossary-term" data-def="${def}" style="text-decoration:underline dotted;cursor:help;color:#f4c842" onclick="showGlossaryTip(this)">$1</span>`
+    );
+  });
+  return result;
+}
+
+function showGlossaryTip(el){
+  let tip = document.getElementById('glossary-tip');
+  if(!tip){
+    tip = document.createElement('div');
+    tip.id = 'glossary-tip';
+    tip.style.cssText = 'position:fixed;z-index:999;background:#1a0a00;border:1px solid rgba(201,162,39,.6);color:#f4e8c1;font-size:12px;padding:8px 12px;border-radius:6px;max-width:240px;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.6)';
+    document.body.appendChild(tip);
+  }
+  tip.textContent = el.dataset.def;
+  const r = el.getBoundingClientRect();
+  tip.style.left = Math.min(r.left, window.innerWidth - 260) + 'px';
+  tip.style.top  = (r.bottom + 6) + 'px';
+  tip.style.display = 'block';
+  clearTimeout(tip._hide);
+  tip._hide = setTimeout(()=>{ tip.style.display='none'; }, 3000);
 }
 
 function renderField(w){
@@ -1402,12 +1570,21 @@ function playCard(cuid){
     window._pushAction?.({type:'play', cardName: card.name, cardType: 'unit', cardData: card});
     onPlay(card,'me');
   }else{
+    // ลบออกจากมือก่อนเลย แต่เก็บไว้ใน _pendingActionCard เผื่อ cancel
     GS.me.hand.splice(idx,1);
+    window._pendingActionCard = card;
     log(`✨ ใช้ ${card.name}`,'li');
     animateAction(card);
     window._pushAction?.({type:'play', cardName: card.name, cardType: card.t});
     doAction(card,'me');
-    GS.me.graveyard.push(card);
+    // ถ้า doAction sync (ไม่มี showTgt) → clear pending และ push graveyard
+    if(window._pendingActionCard === card){
+      window._pendingActionCard = null;
+      if(!GS.me.graveyard.find(c=>c.uid===card.uid)){
+        GS.me.graveyard.push(card);
+      }
+    }
+    // ถ้า async (showTgt) → graveyard จะถูก push ตอน callback resolve เอง
   }
   renderAll();
 }
@@ -1688,13 +1865,33 @@ function showTgt(title,desc,options,cb){
   tgtCallback=cb;
   document.getElementById('tgtpop').classList.remove('hid');
 }
-function closeTgt(){document.getElementById('tgtpop').classList.add('hid');tgtCallback=null;}
+function closeTgt(){
+  document.getElementById('tgtpop').classList.add('hid');
+  if(window._pendingActionCard){
+    const c = window._pendingActionCard;
+    window._pendingActionCard = null;
+    const gi = GS.me.graveyard.indexOf(c);
+    if(gi !== -1) GS.me.graveyard.splice(gi, 1);
+    if(!GS.me.hand.find(x=>x.uid===c.uid)) GS.me.hand.push(c);
+    renderAll();
+  }
+  tgtCallback=null;
+}
+
+function commitActionCard(){
+  if(window._pendingActionCard){
+    const c = window._pendingActionCard;
+    window._pendingActionCard = null;
+    if(!GS.me.graveyard.find(x=>x.uid===c.uid)) GS.me.graveyard.push(c);
+  }
+}
 
 function doAction(card,w){
   const p=GS[w],opp=w==='me'?GS.enemy:GS.me;
-  const isAI = w!=='me'; // ถ้าไม่ใช่ฝ่ายเรา = AI ตัดสินใจเอง ไม่ขึ้น popup
+  const isAI = w!=='me';
+  if(!isAI) window._pendingActionCard = card; // track เพื่อคืนถ้า cancel
   switch(card.sp){
-    case 'draw2':drawCard(w,2,w==='me');log('📖 จั่ว 2 ใบ','lh');renderAll();break;
+    case 'draw2':drawCard(w,2,w==='me');log('📖 จั่ว 2 ใบ','lh');window._pendingActionCard=null;renderAll();break;
 
     case 'coin':{
       const h=Math.random()>.5;
@@ -1828,14 +2025,14 @@ function doAction(card,w){
           const remaining=p.graveyard.filter(c=>c.id!==card.id&&!picked.includes(c.uid));
           if(picked.length>=3||!remaining.length){
             picked.forEach(uid=>{const c=p.graveyard.find(x=>x.uid===uid);if(c){p.graveyard.splice(p.graveyard.indexOf(c),1);p.deck.push(c);}});
-            shuffle(p.deck);log(`🌙 นำ ${picked.length} ใบกลับกอง`,'lh');renderAll();return;
+            shuffle(p.deck);log(`🌙 นำ ${picked.length} ใบกลับกอง`,'lh');commitActionCard();renderAll();return;
           }
           const opts=[...(picked.length>0?[{label:`✓ ยืนยัน (เลือก ${picked.length} ใบ)`,key:'confirm'}]:[]),...remaining.map(c=>({label:c.name,key:c.uid}))];
           showTgt('การหลอกหลอนของนายทุน',`เลือกการ์ดจากสุสานกลับกอง (${picked.length}/3)`,opts,
             key=>{
               if(key==='confirm'){
                 picked.forEach(uid=>{const c=p.graveyard.find(x=>x.uid===uid);if(c){p.graveyard.splice(p.graveyard.indexOf(c),1);p.deck.push(c);}});
-                shuffle(p.deck);log(`🌙 นำ ${picked.length} ใบกลับกอง`,'lh');renderAll();
+                shuffle(p.deck);log(`🌙 นำ ${picked.length} ใบกลับกอง`,'lh');commitActionCard();renderAll();
               } else { pickGv3([...picked,key]); }
             });
         };
@@ -2245,6 +2442,17 @@ function doDir(){
 
   GS.enemy.hp=Math.max(0,GS.enemy.hp-dmg);
   log(`🎯 โจมตีตรง -${dmg} HP (เหลือ ${GS.enemy.hp})`,'la');
+  window._pushAction?.({type:'direct', dmg, attackerNames: attackerCards.map(c=>c.name)});
+
+  // animation: ยิง arrow จากการ์ดแรกไปที่ orb ศัตรู
+  const firstAtkEl = document.querySelector(`#mf [data-uid="${attackers[0]}"]`);
+  const orbEl = document.getElementById('ehp') || document.querySelector('.hp-bar');
+  if(firstAtkEl && orbEl){
+    animateCombat(firstAtkEl, orbEl, () => {
+      const r = orbEl.getBoundingClientRect();
+      showDamage(r.left + r.width/2, r.top + r.height/2, dmg, '#ff4444');
+    });
+  }
 
   // พ่อมดขาวของศัตรู: ถ้ามีในมือ → ลงสนามทันที พร้อมกระต่ายจากสุสาน
   const eWizInHand=GS.enemy.hand.find(c=>c.id==='a_wizw');
