@@ -518,6 +518,9 @@ let _myRole = null;   // 'player1' | 'player2'
 let _roomRef = null;
 let _userId = Math.random().toString(36).slice(2, 10);
 let _deckChosen = false;
+// piggy — ใช้ window เพื่อให้ main script เข้าถึงได้
+window._piggyActive    = false;
+window._piggyDmgTaken  = 0;
 
 // ====== ฟังก์ชัน utility ======
 function lobbyStatus(msg, color) {
@@ -607,20 +610,24 @@ window.copyCode = function() {
 };
 
 // ====== ฟัง Firebase ======
+let _handleRoomTimer = null;
+function _scheduleHandleRoom() {
+  clearTimeout(_handleRoomTimer);
+  _handleRoomTimer = setTimeout(() => {
+    get(ref(db, 'rooms/' + _roomId)).then(snap => {
+      if (!snap.exists()) { window.showSc('ts'); return; }
+      _handleRoom(snap.val());
+    });
+  }, 80); // รอ 80ms ให้ทุก path update เสร็จก่อน
+}
+
 function _listenRoom() {
   if (!_roomRef) return;
   off(_roomRef);
 
-  // listen เฉพาะ field ที่จำเป็น ไม่ใช่ทั้ง room (ป้องกัน lastAction trigger _handleRoom)
   const paths = ['player1', 'player2', 'status', 'GS', 'currentTurn', 'turnNum'];
   paths.forEach(p => {
-    onValue(ref(db, 'rooms/' + _roomId + '/' + p), () => {
-      // ดึง room ทั้งหมดมา handle ครั้งเดียว
-      get(ref(db, 'rooms/' + _roomId)).then(snap => {
-        if (!snap.exists()) { window.showSc('ts'); return; }
-        _handleRoom(snap.val());
-      });
-    });
+    onValue(ref(db, 'rooms/' + _roomId + '/' + p), _scheduleHandleRoom);
   });
 }
 
@@ -682,25 +689,18 @@ function _handleRoom(room) {
     // GS ใน Firebase เก็บจาก perspective ของคนที่เพิ่ง endTurn (me=เขา enemy=เรา)
     // ถ้าไม่ใช่เทิร์นเรา → swap กลับเพื่อให้ me=ตัวเอง enemy=คู่แข่งเสมอ
     const isOurTurn = (room.currentTurn === _myRole);
-    if (!isOurTurn) {
-      // ไม่ใช่เทิร์นเรา — swap กลับ และ track HP ที่เสียเพื่อ piggy
-      const prevMyHp = window.GS?.me?.hp;
-      const newMyHp  = room.GS.enemy.hp; // หลัง swap: enemy ใน Firebase = me ของเรา
-      const swapped  = { me: room.GS.enemy, enemy: room.GS.me };
-      // piggy: บวก HP ที่เสียระหว่างเทิร์นศัตรู
-      if(swapped.me.piggyActive && prevMyHp !== undefined && newMyHp < prevMyHp){
-        swapped.me.piggyDmgTaken = (swapped.me.piggyDmgTaken || 0) + (prevMyHp - newMyHp);
-      }
-      window.GS = swapped;
+    const prevMyHp  = window.GS?.me?.hp;
+
+    if(!isOurTurn){
+      window.GS = { me: room.GS.enemy, enemy: room.GS.me };
     } else {
-      // เทิร์นของเรากลับมา — preserve piggy ที่ track ไว้ก่อน overwrite
-      const savedPiggyDmgTaken = window.GS?.me?.piggyDmgTaken || 0;
-      const savedPiggyActive   = window.GS?.me?.piggyActive   || false;
       window.GS = room.GS;
-      if(savedPiggyActive){
-        window.GS.me.piggyActive    = true;
-        window.GS.me.piggyDmgTaken  = savedPiggyDmgTaken;
-      }
+    }
+
+    // track HP ที่เสียระหว่างเทิร์นศัตรู (สำหรับ piggy)
+    const newMyHp = window.GS?.me?.hp;
+    if(window._piggyActive && prevMyHp !== undefined && newMyHp < prevMyHp){
+      window._piggyDmgTaken += prevMyHp - newMyHp;
     }
     window.turnNum = room.turnNum || 1;
     window.isMyTurn = (room.currentTurn === _myRole);
@@ -712,12 +712,17 @@ function _handleRoom(room) {
       document.getElementById('batk').disabled = false;
       document.getElementById('bend').disabled = false;
       // piggy bonus draw
-      const piggyBonus = window.GS?.me?.piggyDmgTaken || 0;
-      if(piggyBonus > 0 && window.GS?.me?.piggyActive){
-        window.drawCard?.('me', piggyBonus);
-        window.log?.(`🐷 ดอกเบี้ยทบต้น: จั่วเพิ่ม ${piggyBonus} ใบ!`, 'lh');
-        window.GS.me.piggyActive = false;
-        window.GS.me.piggyDmgTaken = 0;
+      if(window._piggyActive && window._piggyDmgTaken > 0){
+        const bonus = window._piggyDmgTaken;
+        window._piggyActive = false;
+        window._piggyDmgTaken = 0;
+        // จั่วการ์ดเข้า GS ก่อน
+        for(let i = 0; i < bonus; i++){
+          if(window.GS.me.deck.length > 0) window.GS.me.hand.push(window.GS.me.deck.shift());
+        }
+        window.log?.(`🐷 ดอกเบี้ยทบต้น: จั่วเพิ่ม ${bonus} ใบ!`, 'lh');
+        // push GS ที่มีการ์ดใหม่ขึ้น Firebase ทันที เพื่อไม่ให้ sync ครั้งหน้าทับ
+        update(_roomRef, { GS: window.GS, currentTurn: _myRole });
       }
       window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
       window.log('─── เทิร์น ' + window.turnNum + ' เริ่ม ───', 'li');
@@ -886,16 +891,35 @@ function _listenActions() {
 
     } else if (a.type === 'direct') {
       window.log?.(`🎯 [คู่แข่ง] โจมตีตรง -${a.dmg} HP!`, 'la');
-      // ลด HP ของเรา realtime ก่อน GS sync
       if (window.GS?.me) {
         const hpBefore = window.GS.me.hp;
         window.GS.me.hp = Math.max(0, window.GS.me.hp - a.dmg);
-        // piggy tracking
-        if (window.GS.me.piggyActive) {
-          window.GS.me.piggyDmgTaken = (window.GS.me.piggyDmgTaken || 0) + (hpBefore - window.GS.me.hp);
+        if (window._piggyActive) {
+          window._piggyDmgTaken += hpBefore - window.GS.me.hp;
         }
+
+        // พ่อมดขาว: summon ฝั่งเรา แล้ว push GS ขึ้น Firebase
+        const wizInHand = window.GS.me.hand?.find(c => c.id === 'a_wizw');
+        if(wizInHand && (window.GS.me.field?.filter(c=>!c.ignoreLimit).length||0) < 5){
+          window.GS.me.hand.splice(window.GS.me.hand.indexOf(wizInHand), 1);
+          window.freshToField?.(wizInHand, window.GS.me.field);
+          window.log?.(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ!`, 'lh');
+          const rabbit = window.GS.me.graveyard?.find(c => c.id === 'a_rabbit');
+          if(rabbit){
+            window.GS.me.graveyard.splice(window.GS.me.graveyard.indexOf(rabbit), 1);
+            rabbit.ignoreLimit = true;
+            window.freshToField?.(rabbit, window.GS.me.field);
+            window.log?.(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน! (ไม่นับลิมิต)`, 'lh');
+          }
+          // push GS ที่มีพ่อมดขาวขึ้น Firebase ทันที (swap ก่อน push)
+          const swappedForPush = {
+            me:    JSON.parse(JSON.stringify(window.GS.enemy)),
+            enemy: JSON.parse(JSON.stringify(window.GS.me))
+          };
+          update(_roomRef, { GS: swappedForPush });
+        }
+
         window.renderAll?.();
-        // damage number บน orb เรา
         const orbEl = document.getElementById('mhp') || document.querySelector('.mhp');
         if (orbEl) {
           const r = orbEl.getBoundingClientRect();
@@ -1417,6 +1441,7 @@ function showGlossaryTip(el){
 function renderField(w){
   const z=document.getElementById(w==='me'?'mf':'ef');
   const em=document.getElementById(w==='me'?'mfe':'efe');
+  // ลบการ์ดทั้งหมดรวมถึง preview ที่ inject จาก _pushAction
   [...z.children].forEach(c=>{if(!c.classList.contains('flbl')&&!c.classList.contains('fempty'))c.remove();});
   const p=GS[w];
   em.style.display=p.field.length===0?'flex':'none';
@@ -1947,13 +1972,17 @@ function doAction(card,w){
     case 'revive':{
       const units=p.graveyard.filter(c=>c.t==='unit');
       if(!units.length){log('ไม่มียูนิทในสุสาน','li');renderAll();break;}
-      if(p.field.filter(c=>!c.ignoreLimit).length>=5){ss('สนามเต็ม!');renderAll();break;}
       const doRevive=uid=>{
         const r=p.graveyard.find(c=>c.uid===uid);
-        if(r){p.graveyard.splice(p.graveyard.indexOf(r),1); freshToField(r, p.field); log(`🔮 ฟื้น ${r.name}!`,'lh');}
-        renderAll();
+        if(r){
+          p.graveyard.splice(p.graveyard.indexOf(r),1);
+          if(r.id==='a_rabbit') r.ignoreLimit=true; // กระต่ายจากสุสาน → ไม่นับลิมิต
+          freshToField(r, p.field);
+          log(`🔮 ฟื้น ${r.name}!${r.id==='a_rabbit'?' (ไม่นับลิมิต)':''}`, 'lh');
+        }
+        commitActionCard(); renderAll();
       };
-      if(isAI){ doRevive(units[0].uid); } // AI เลือกใบแรก
+      if(isAI){ doRevive(units[0].uid); }
       else showTgt('เลือกยูนิทที่จะฟื้นคืน','เลือก 1 ใบจากสุสาน',
         units.map(c=>({label:`${c.name} (⚔${c.cAtk}/♥${c.hp})`,key:c.uid})), doRevive);
       break;
@@ -1963,10 +1992,12 @@ function doAction(card,w){
       const fromGv=p.graveyard.find(c=>c.id==='a_rabbit');
       const fromDk=p.deck.find(c=>c.id==='a_rabbit');
       const r=fromGv||fromDk;
-      if(r&&p.field.filter(c=>!c.ignoreLimit).length<5){
+      if(r){
         const src=fromGv?p.graveyard:p.deck;
-        src.splice(src.indexOf(r),1); freshToField(r, p.field);
-        log(`🐰 เรียก ${r.name}!`,'lh');
+        src.splice(src.indexOf(r),1);
+        if(fromGv) r.ignoreLimit=true; // จากสุสาน → ไม่นับลิมิต
+        freshToField(r, p.field);
+        log(`🐰 เรียก ${r.name}!${fromGv?' (ไม่นับลิมิต)':''}`, 'lh');
       }else{log('ไม่พบกระต่ายนำโชค','li');}
       renderAll();break;
     }
@@ -2185,9 +2216,12 @@ function doAction(card,w){
     }
 
     case 'piggy':{
-      // บันทึก HP ปัจจุบันก่อนเทิร์นศัตรู จะใช้คำนวณเลือดที่เสียไป
       GS[w].piggyActive=true;
       GS[w].piggyHpBefore=GS[w].hp;
+      if(w==='me' && window.isOnline){
+        window._piggyActive = true;
+        window._piggyDmgTaken = 0;
+      }
       log(`🐷 ดอกเบี้ยทบต้น: ใช้งาน! HP ตอนนี้=${GS[w].hp} ถ้าเสียเลือดในเทิร์นศัตรู จะจั่วเพิ่มเทิร์นหน้า`,'lh');
       renderAll();break;
     }
@@ -2463,8 +2497,9 @@ function doDir(){
     const eRabbit=GS.enemy.graveyard.find(c=>c.id==='a_rabbit');
     if(eRabbit && GS.enemy.field.filter(c=>!c.ignoreLimit).length<5){
       GS.enemy.graveyard.splice(GS.enemy.graveyard.indexOf(eRabbit),1);
+      eRabbit.ignoreLimit=true;
       freshToField(eRabbit, GS.enemy.field);
-      log(`🐰 ศัตรู: กระต่ายนำโชคลงสนามจากสุสาน!`,'la');
+      log(`🐰 ศัตรู: กระต่ายนำโชคลงสนามจากสุสาน! (ไม่นับลิมิต)`,'la');
       onPlay(eRabbit,'enemy');
     }
   }
@@ -2690,10 +2725,11 @@ function aiAtk(){
         log(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ!`,'lh');
         // เรียกกระต่ายจากสุสาน
         const rabbit=GS.me.graveyard.find(c=>c.id==='a_rabbit');
-        if(rabbit && GS.me.field.filter(c=>!c.ignoreLimit).length<5){
+        if(rabbit){
           GS.me.graveyard.splice(GS.me.graveyard.indexOf(rabbit),1);
+          rabbit.ignoreLimit=true;
           freshToField(rabbit, GS.me.field);
-          log(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน!`,'lh');
+          log(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน! (ไม่นับลิมิต)`,'lh');
           onPlay(rabbit,'me');
         }
       }
@@ -2794,7 +2830,7 @@ window.shuffle=shuffle; window.mkCard=mkCard;
 window.drawCard=drawCard; window.renderAll=renderAll;
 window.initGame=initGame; window.showSc=showSc;
 window.showDamage=showDamage; window.animateCombat=animateCombat; window.animateDie=animateDie;
-window.imgTag=imgTag;
+window.imgTag=imgTag; window.freshToField=freshToField;
 window.DB=DB;
 </script>
 </body>
