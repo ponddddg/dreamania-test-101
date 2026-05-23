@@ -702,11 +702,18 @@ function _handleRoom(room) {
     if(window._piggyActive && prevMyHp !== undefined && newMyHp < prevMyHp){
       window._piggyDmgTaken += prevMyHp - newMyHp;
     }
-    window.turnNum = room.turnNum || 1;
-    window.isMyTurn = (room.currentTurn === _myRole);
-    window.atkMode = false;
-    window.eqMode = false;
-    window.attackers = [];
+
+    const newTurnNum = room.turnNum || 1;
+    const turnChanged = newTurnNum !== window.turnNum;
+    window.turnNum = newTurnNum;
+
+    // reset turn state เฉพาะตอนเทิร์นเปลี่ยน ไม่ใช่ตอน GS update กลางเทิร์น
+    if(turnChanged){
+      window.isMyTurn = (room.currentTurn === _myRole);
+      window.atkMode = false;
+      window.eqMode = false;
+      window.attackers = [];
+    }
 
     if (window.isMyTurn) {
       document.getElementById('batk').disabled = false;
@@ -879,6 +886,12 @@ function _listenActions() {
         }
       }, 100);
 
+    } else if (a.type === 'wizSummon') {
+      window.log?.(`🧙‍♀️ [คู่แข่ง] ${a.cardName} ลงสนามจากมือ! ${a.forceEndTurn ? '— บังคับจบเทิร์น!' : ''}`, 'lh');
+      if (a.forceEndTurn && window.isMyTurn) {
+        window.log?.(`⚡ พ่อมดขาว: เทิร์นของคุณจบลงทันที!`, 'la');
+        setTimeout(() => window.endTurn?.(), 800);
+      }
     } else if (a.type === 'die') {
       window.log?.(`💀 [คู่แข่ง] ${a.targetName} ถูกทำลาย!`, 'la');
       setTimeout(() => {
@@ -890,20 +903,21 @@ function _listenActions() {
       }, 150);
 
     } else if (a.type === 'direct') {
-      window.log?.(`🎯 [คู่แข่ง] โจมตีตรง -${a.dmg} HP!`, 'la');
       if (window.GS?.me) {
         const hpBefore = window.GS.me.hp;
         window.GS.me.hp = Math.max(0, window.GS.me.hp - a.dmg);
+        window.log?.(`🎯 [คู่แข่ง] โจมตีตรง -${a.dmg} HP!`, 'la');
         if (window._piggyActive) {
           window._piggyDmgTaken += hpBefore - window.GS.me.hp;
         }
 
-        // พ่อมดขาว: summon ฝั่งเรา แล้ว push GS ขึ้น Firebase
         const wizInHand = window.GS.me.hand?.find(c => c.id === 'a_wizw');
-        if(wizInHand && (window.GS.me.field?.filter(c=>!c.ignoreLimit).length||0) < 5){
+        const wizTriggered = !!(wizInHand && (window.GS.me.field?.filter(c=>!c.ignoreLimit).length||0) < 5);
+
+        if(wizTriggered){
           window.GS.me.hand.splice(window.GS.me.hand.indexOf(wizInHand), 1);
           window.freshToField?.(wizInHand, window.GS.me.field);
-          window.log?.(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ!`, 'lh');
+          window.log?.(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ! บังคับฝ่ายตรงข้ามจบเทิร์น!`, 'lh');
           const rabbit = window.GS.me.graveyard?.find(c => c.id === 'a_rabbit');
           if(rabbit){
             window.GS.me.graveyard.splice(window.GS.me.graveyard.indexOf(rabbit), 1);
@@ -911,12 +925,7 @@ function _listenActions() {
             window.freshToField?.(rabbit, window.GS.me.field);
             window.log?.(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน! (ไม่นับลิมิต)`, 'lh');
           }
-          // push GS ที่มีพ่อมดขาวขึ้น Firebase ทันที (swap ก่อน push)
-          const swappedForPush = {
-            me:    JSON.parse(JSON.stringify(window.GS.enemy)),
-            enemy: JSON.parse(JSON.stringify(window.GS.me))
-          };
-          update(_roomRef, { GS: swappedForPush });
+          window._pushAction?.({type:'wizSummon', cardName: wizInHand.name, forceEndTurn: true});
         }
 
         window.renderAll?.();
@@ -970,6 +979,15 @@ toastStyle.textContent = `
   }
 `;
 document.head.appendChild(toastStyle);
+// push GS ปัจจุบันขึ้น Firebase — ใช้เมื่อ summon/destroy เกิดนอก endTurn
+window._pushGS = function() {
+  if (!_roomId || !window.GS) return;
+  // push GS ตรงๆ ไม่ swap เพราะ _handleRoom จัดการ swap เมื่อรับ
+  // currentTurn ยังเป็นของเรา ดังนั้น _handleRoom ฝั่งเราจะ isOurTurn=true → ใช้ตรงๆ
+  // _handleRoom ฝั่งตรงข้าม isOurTurn=false → swap กลับ ✓
+  update(_roomRef, { GS: JSON.parse(JSON.stringify(window.GS)) });
+};
+
 window._onlineEndGame = function(winner, reason) {
   if (!_roomId) return;
   // winner คือ 'me' หรือ 'enemy' จากมุมมองคนที่ endGame ถูกเรียก
@@ -1178,9 +1196,9 @@ const DB = {
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
-    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บเสียเลือด → เรียกตัวนี้จากมือ แล้วเรียกกระต่ายจากสุสาน'},
-    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บเสียเลือด → เรียกตัวนี้จากมือ แล้วเรียกกระต่ายจากสุสาน'},
-    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บเสียเลือด → เรียกตัวนี้จากมือ แล้วเรียกกระต่ายจากสุสาน'},
+    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บโดนตีตรง → ลงสนามจากมือ ดาเมจเหลือ 1 บังคับฝ่ายตรงข้ามจบเทิร์น แล้วเรียกกระต่ายจากสุสาน'},
+    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บโดนตีตรง → ลงสนามจากมือ ดาเมจเหลือ 1 บังคับฝ่ายตรงข้ามจบเทิร์น แล้วเรียกกระต่ายจากสุสาน'},
+    {id:'a_wizw',    name:'พ่อมดขาว',                   t:'unit',  atk:2,hp:3,sh:true,  img:'wizard_w',eff:'ออร์บโดนตีตรง → ลงสนามจากมือ ดาเมจเหลือ 1 บังคับฝ่ายตรงข้ามจบเทิร์น แล้วเรียกกระต่ายจากสุสาน'},
     {id:'a_wizb',    name:'พ่อมดดำ',                    t:'unit',  atk:1,hp:4,sh:false, img:'wizard_b',eff:'ATK = 1 + จำนวนยูนิทของคุณในสนาม', scaling:true},
     {id:'a_wizb',    name:'พ่อมดดำ',                    t:'unit',  atk:1,hp:4,sh:false, img:'wizard_b',eff:'ATK = 1 + จำนวนยูนิทของคุณในสนาม', scaling:true},
     {id:'a_troll',   name:'โทรลล์',                     t:'unit',  atk:4,hp:3,sh:true,  img:'troll',   eff:''},
@@ -1683,13 +1701,14 @@ function onPlay(card,w){
       if(top.t==='unit'){
         p.deck.shift(); freshToField(top, p.field);
         log(`🐰 กระต่ายนำโชค: เรียก ${top.name} ลงสนาม!`,'lh');
-        onPlay(top, w); // trigger chain — ถ้า top ก็เป็นกระต่าย จะ trigger ต่อไป
+        onPlay(top, w);
       } else {
         p.deck.shift(); p.graveyard.push(top);
         log(`🐰 กระต่ายนำโชค: ${top.name}→สุสาน`,'li');
       }
+      window._pushGS?.();
     }
-    return; // summon_top ทำใน if block นี้แล้ว ไม่ต้องทำซ้ำ
+    return;
   }
 
   if(card.sp_play==='summon_top'&&p.deck.length){
@@ -1952,7 +1971,7 @@ function doAction(card,w){
           if(w==='me') killEnemyCard(c);
           else { c.items=[]; opp.field.splice(opp.field.indexOf(c),1); opp.graveyard.push(c); }
         });
-        renderAll();
+        commitActionCard();window._pushGS?.();renderAll();
       };
       if(isAI){
         p.graveyard.push(p.hand.shift());
@@ -1976,11 +1995,12 @@ function doAction(card,w){
         const r=p.graveyard.find(c=>c.uid===uid);
         if(r){
           p.graveyard.splice(p.graveyard.indexOf(r),1);
-          if(r.id==='a_rabbit') r.ignoreLimit=true; // กระต่ายจากสุสาน → ไม่นับลิมิต
+          if(r.id==='a_rabbit') r.ignoreLimit=true;
           freshToField(r, p.field);
           log(`🔮 ฟื้น ${r.name}!${r.id==='a_rabbit'?' (ไม่นับลิมิต)':''}`, 'lh');
+          onPlay(r, w);
         }
-        commitActionCard(); renderAll();
+        commitActionCard(); window._pushGS?.(); renderAll();
       };
       if(isAI){ doRevive(units[0].uid); }
       else showTgt('เลือกยูนิทที่จะฟื้นคืน','เลือก 1 ใบจากสุสาน',
@@ -1995,11 +2015,12 @@ function doAction(card,w){
       if(r){
         const src=fromGv?p.graveyard:p.deck;
         src.splice(src.indexOf(r),1);
-        if(fromGv) r.ignoreLimit=true; // จากสุสาน → ไม่นับลิมิต
+        if(fromGv) r.ignoreLimit=true;
         freshToField(r, p.field);
+        onPlay(r, w);
         log(`🐰 เรียก ${r.name}!${fromGv?' (ไม่นับลิมิต)':''}`, 'lh');
       }else{log('ไม่พบกระต่ายนำโชค','li');}
-      renderAll();break;
+      window._pushGS?.(); renderAll();break;
     }
 
     case 'mill':{
@@ -2203,7 +2224,7 @@ function doAction(card,w){
         const doDeploy=dUid=>{
           const d=p.deck.find(c=>c.uid===dUid);
           if(d){p.deck.splice(p.deck.indexOf(d),1);freshToField(d,p.field);log(`▶ ${d.name} ลงสนาม!`,'lh');onPlay(d,w);}
-          renderAll();
+          commitActionCard();window._pushGS?.();renderAll();
         };
         if(isAI){ doDeploy(deckUnits[0].uid); }
         else setTimeout(()=>showTgt('การแสดงอันหลอกลวง — เลือกจากกอง','เลือกยูนิทที่จะลงสนามทันที',
@@ -2385,6 +2406,7 @@ function atkTarget(tuid){
             const idx=GS.me.field.indexOf(kil);
             if(idx!==-1){kil.items=[];GS.me.field.splice(idx,1);GS.me.graveyard.push(kil);log(`💥 ${target.name}: ${kil.name} ตายตาม!`,'la');}
           });
+          window._pushGS?.();
         }
         resolvePostAtk(attackerCards);
       }, 480);
@@ -2428,7 +2450,7 @@ function resolvePostAtk(attackerCards){
             const chosen=top3.find(x=>x.uid===uid);
             if(chosen){freshToField(chosen,GS.me.field);log(`🪄 เมอร์ลิน: ลง ${chosen.name}!`,'lh');const rest=top3.filter(x=>x.uid!==uid);rest.forEach(x=>GS.me.deck.push(x));}
             else top3.forEach(x=>GS.me.deck.push(x));
-            shuffle(GS.me.deck);renderAll();
+            shuffle(GS.me.deck);window._pushGS?.();renderAll();
           });
       } else {
         top3.forEach(x=>GS.me.deck.splice(0,0,x));
@@ -2472,6 +2494,15 @@ function doDir(){
   if(mercCount>0&&GS.enemy.field.length>0){
     dmg+=mercCount;
     log(`⚔ ทหารรับจ้าง เจด: โบนัส +${mercCount} ดาเมจ`,'lh');
+  }
+
+  // พ่อมดขาว: ถ้าฝ่ายตรงข้ามมีในมือ → ดาเมจเหลือ 1 และบังคับจบเทิร์น
+  const enemyHasWiz = GS.enemy.hand?.find(c=>c.id==='a_wizw');
+  const enemyFieldHasSpace = GS.enemy.field.filter(c=>!c.ignoreLimit).length < 5;
+  const wizWillTrigger = enemyHasWiz && enemyFieldHasSpace;
+  if(wizWillTrigger){
+    dmg = 1;
+    log(`🧙‍♀️ พ่อมดขาวดูดซับดาเมจ! เหลือ 1 เท่านั้น`,'lh');
   }
 
   GS.enemy.hp=Math.max(0,GS.enemy.hp-dmg);
