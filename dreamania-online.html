@@ -98,7 +98,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
 .ch.action{background:linear-gradient(135deg,#101e35,#1a2e55)}
 .ch.item{background:linear-gradient(135deg,#35200e,#553010)}
 .cname{font-size:6px;font-weight:700;color:var(--glight);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Cinzel',serif;letter-spacing:.3px}
-.cart{height:50px;overflow:hidden;background:#6b5535;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
+.cart{height:50px;overflow:hidden;background:#6b5535;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;border-radius:0}
 .cart img{width:100%;height:100%;object-fit:cover}
 .cbody{flex:1;padding:2px 4px;overflow:hidden}
 .ceff{font-size:5.4px;color:#5a3a1a;line-height:1.42;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;font-style:italic}
@@ -152,8 +152,9 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
 .dp{position:fixed;inset:0;background:rgba(0,0,0,.84);display:flex;align-items:center;justify-content:center;z-index:90;backdrop-filter:blur(5px)}
 .dp.hid{display:none}
 .dbox{background:var(--parch);color:var(--ink);border:3px solid var(--gold);border-radius:10px;max-width:300px;width:88%;overflow:hidden}
-.dimg{width:100%;height:150px;object-fit:cover}
+.dimg{width:100%;height:150px;object-fit:cover;display:block}
 .dimgph{width:100%;height:150px;display:flex;align-items:center;justify-content:center;font-size:54px;background:#8b7355}
+#dimgw,#ecd-imgw{overflow:hidden;height:150px;}
 .dbody{padding:14px}
 .dname{font-family:'Cinzel',serif;font-size:17px;color:#3a1a05;margin-bottom:3px;font-weight:700}
 .dtype{font-size:10px;color:#7a5a3a;margin-bottom:9px;letter-spacing:2px}
@@ -256,7 +257,9 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
   100%{transform:scale(0) rotate(15deg);opacity:0;filter:brightness(0)}
 }
 
-.istrip{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:2px;}
+.tut-hl{outline:3px solid #f4c842!important;outline-offset:4px;animation:tuthl 1s ease-in-out infinite alternate;}
+@keyframes tuthl{0%{outline-color:#f4c842;box-shadow:0 0 8px rgba(244,200,66,.4)}100%{outline-color:#fff;box-shadow:0 0 16px rgba(244,200,66,.8)}}
+@keyframes tutpop{0%{transform:translateX(-50%) scale(.8);opacity:0}100%{transform:translateX(-50%) scale(1);opacity:1}}
 .ibadge{font-size:10px;background:rgba(0,0,0,.6);border-radius:3px;padding:1px 2px;}
 .buff-badge{position:absolute;top:2px;right:2px;font-size:9px;font-weight:700;background:#2a5a1a;color:#9eff9e;border-radius:3px;padding:1px 3px;}
 .dmg-float{
@@ -330,6 +333,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
     <!-- AI mode -->
     <div class="lobby-section active" id="tab-ai">
       <button class="btn btn-g" onclick="goDecks()">เล่นกับ AI →</button>
+      <button class="btn btn-s" onclick="startTutorial()" style="margin-top:6px;background:rgba(201,162,39,.15);border-color:rgba(201,162,39,.4)">📖 Tutorial (สอนวิธีเล่น)</button>
     </div>
     <!-- Online mode -->
     <div class="lobby-section" id="tab-online">
@@ -626,7 +630,7 @@ function _listenRoom() {
   if (!_roomRef) return;
   off(_roomRef);
 
-  const paths = ['player1', 'player2', 'status', 'GS', 'currentTurn', 'turnNum'];
+  const paths = ['player1', 'player2', 'status', 'GS', 'currentTurn', 'turnNum', 'coinFlip'];
   paths.forEach(p => {
     onValue(ref(db, 'rooms/' + _roomId + '/' + p), _scheduleHandleRoom);
   });
@@ -666,7 +670,13 @@ function _handleRoom(room) {
     }
 
     if (mine?.ready && opp?.ready) {
-      _startGame(room);
+      if(_myRole === 'player1'){
+        _startGame(room); // player1 สุ่มเหรียญและสร้าง GS
+      } else if(room.coinFlip){
+        // player2 ได้รับผล coinFlip แล้ว → แสดง animation
+        _showCoinFlip(room, room.coinFlip);
+      }
+      // ถ้า player2 ยังไม่มี coinFlip รอต่อ
     }
     return;
   }
@@ -754,41 +764,115 @@ function _startGame(room) {
   const p1 = room.player1;
   const p2 = room.player2;
 
-  // ตั้งชื่อบน board ก่อนเสมอ
   document.getElementById('mname').textContent = (_myRole === 'player1' ? p1 : p2).name;
   document.getElementById('ename').textContent = (_myRole === 'player1' ? p2 : p1).name;
 
   if (_myRole === 'player1') {
-    // สร้าง GS เริ่มต้น
+    // สุ่มว่าใครเริ่มก่อน
+    const firstTurn = Math.random() < 0.5 ? 'player1' : 'player2';
+    // push ผลสุ่มขึ้น Firebase ก่อนเริ่มเกม
+    update(_roomRef, { coinFlip: firstTurn });
+    _showCoinFlip(room, firstTurn);
+  } else {
+    // player2 รอ coinFlip จาก Firebase
+    window.showSc('gs');
+    window.ss('รอการสุ่มเหรียญ...');
+  }
+}
+
+function _showCoinFlip(room, firstTurn) {
+  const p1 = room.player1; const p2 = room.player2;
+  const myName = (_myRole === 'player1' ? p1 : p2).name;
+  const iGoFirst = firstTurn === _myRole;
+
+  // สร้าง overlay สุ่มเหรียญ
+  const overlay = document.createElement('div');
+  overlay.id = 'coin-overlay';
+  overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px`;
+  overlay.innerHTML = `
+    <div style="font-family:'Cinzel',serif;font-size:20px;color:#f4e8c1">สุ่มผู้เริ่มก่อน!</div>
+    <div id="coin" style="font-size:80px;animation:coinSpin 1.5s ease-out forwards">🪙</div>
+    <div id="coin-result" style="font-family:'Cinzel',serif;font-size:24px;color:#f4c842;opacity:0;transition:opacity .5s"></div>
+  `;
+  document.body.appendChild(overlay);
+
+  // CSS animation เหรียญหมุน
+  if(!document.getElementById('coin-css')){
+    const s = document.createElement('style');
+    s.id = 'coin-css';
+    s.textContent = `
+      @keyframes coinSpin {
+        0%   { transform:rotateY(0deg) scale(1); }
+        25%  { transform:rotateY(360deg) scale(1.3); }
+        50%  { transform:rotateY(720deg) scale(1); }
+        75%  { transform:rotateY(1080deg) scale(1.2); }
+        100% { transform:rotateY(1440deg) scale(1); }
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  setTimeout(() => {
+    const resultEl = document.getElementById('coin-result');
+    const coinEl = document.getElementById('coin');
+    if(iGoFirst){
+      coinEl.textContent = '👑';
+      if(resultEl){ resultEl.textContent = '✨ คุณได้ไปก่อน!'; resultEl.style.color='#f4c842'; resultEl.style.opacity='1'; }
+    } else {
+      coinEl.textContent = '🌙';
+      if(resultEl){ resultEl.textContent = 'ฝ่ายตรงข้ามได้ไปก่อน'; resultEl.style.color='#aaa'; resultEl.style.opacity='1'; }
+    }
+    setTimeout(() => {
+      overlay.remove();
+      _doStartGame(room, firstTurn);
+    }, 1800);
+  }, 1600);
+}
+
+function _doStartGame(room, firstTurn) {
+  const p1 = room.player1; const p2 = room.player2;
+  const iGoFirst = firstTurn === _myRole;
+
+  if (_myRole === 'player1') {
     const mkD = dk => window.shuffle(window.DB[dk].map(d => window.mkCard(d, dk)));
-    window.GS = {
-      me:    { name: p1.name, hp: 8, deck: mkD(p1.deck), hand: [], field: [], graveyard: [] },
-      enemy: { name: p2.name, hp: 8, deck: mkD(p2.deck), hand: [], field: [], graveyard: [] }
-    };
+    // ถ้า player2 เริ่มก่อน ต้อง swap GS perspective
+    if(iGoFirst){
+      window.GS = {
+        me:    { name: p1.name, hp: 8, deck: mkD(p1.deck), hand: [], field: [], graveyard: [] },
+        enemy: { name: p2.name, hp: 8, deck: mkD(p2.deck), hand: [], field: [], graveyard: [] }
+      };
+    } else {
+      window.GS = {
+        me:    { name: p2.name, hp: 8, deck: mkD(p2.deck), hand: [], field: [], graveyard: [] },
+        enemy: { name: p1.name, hp: 8, deck: mkD(p1.deck), hand: [], field: [], graveyard: [] }
+      };
+    }
     for (let i = 0; i < 5; i++) { window.drawCard('me'); window.drawCard('enemy'); }
     window.turnNum = 1;
-    window.isMyTurn = true;
-    window.myDN = p1.deck;
+    window.isMyTurn = iGoFirst;
+    window.myDN = iGoFirst ? p1.deck : p2.deck;
 
     window.showSc('gs');
     window.renderAll();
-    window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
-    window.log('🎮 ' + p1.name + ' vs ' + p2.name + ' — เริ่มเกม!', 'lh');
-    window.log('📋 เทิร์นแรก: วางการ์ดได้ แต่ยังโจมตีไม่ได้', 'li');
+    if(iGoFirst){
+      window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
+      window.log('🎮 ' + p1.name + ' vs ' + p2.name + ' — เริ่มเกม!', 'lh');
+    } else {
+      window.ss('รอ ' + (firstTurn==='player1'?p1:p2).name + ' เล่น...');
+    }
 
-    // push GS ขึ้น Firebase
     update(_roomRef, {
       GS: window.GS,
-      currentTurn: 'player1',
+      currentTurn: firstTurn,
       turnNum: 1,
       status: 'playing'
     });
   } else {
-    // player2: รอ GS จาก Firebase (listenRoom จะ trigger handleRoom → gs branch)
-    window.myDN = p2.deck;
-    window.isMyTurn = false;
+    window.myDN = iGoFirst ? p2.deck : p1.deck;
+    window.isMyTurn = iGoFirst;
     window.showSc('gs');
-    window.ss('รอ ' + p1.name + ' เริ่มเกม...');
+    if(iGoFirst) window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
+    else window.ss('รอ ' + (firstTurn==='player1'?p1:p2).name + ' เล่น...');
   }
 }
 
@@ -822,6 +906,11 @@ function _listenActions() {
     if (a.type === 'play') {
       const icon = a.cardType === 'unit' ? '▶' : '✨';
       window.log?.(`${icon} [คู่แข่ง] ${a.cardName} ${a.cardType === 'unit' ? 'ลงสนาม' : 'ถูกใช้'}`, 'le');
+
+      // แสดง banner สำหรับ action card เหมือน AI
+      if(a.cardType !== 'unit' && a.cardData){
+        setTimeout(()=>{ window.showAIActionToast?.(a.cardData, null, '[คู่แข่ง]'); }, 100);
+      }
 
       if (a.cardType === 'unit' && a.cardData) {
         setTimeout(() => {
@@ -1027,6 +1116,12 @@ toastStyle.textContent = `
     60%{transform:translateX(-4px)}
     80%{transform:translateX(4px)}
   }
+  @keyframes toGrave {
+    0%  {transform:scale(1) rotate(0deg);opacity:1;filter:brightness(1) grayscale(0)}
+    40% {transform:scale(1.1) rotate(-8deg);opacity:1;filter:brightness(1.5) grayscale(1)}
+    100%{transform:scale(0.2) rotate(20deg) translateY(50px);opacity:0;filter:brightness(0)}
+  }
+  .to-grave-anim{animation:toGrave .65s ease-in forwards!important;pointer-events:none;}
 `;
 document.head.appendChild(toastStyle);
 // push GS ปัจจุบันขึ้น Firebase — ใช้เมื่อ summon/destroy เกิดนอก endTurn
@@ -1077,8 +1172,10 @@ window.addEventListener('load', () => {
 
       window.GS.me.field.forEach(c => {
         c.exhausted = false; c.tempBuff = 0; c.hitsDone = 0;
+        if(c.dragonBuff){ c.cAtk -= c.dragonBuff; c.dragonBuff = 0; }
         if (c.hasSwordCurse) c.attackCount = 2;
         else if (c.attackCount > 1) c.attackCount = 1;
+        if(!c.hasSwordCurse){ c.doubleAtk=false; }
       });
       window.isMyTurn = false;
       window.atkMode = false; window.eqMode = false; window.attackers = [];
@@ -1331,6 +1428,9 @@ function renderHp(w){
   for(let i=0;i<8;i++){const s=document.createElement('span');s.className='ht'+(i<p.hp?' ':' dead');s.textContent='❤️';el.appendChild(s);}
 }
 function renderDC(){
+  // reset stats ของการ์ดในสุสานให้กลับเป็นค่าเริ่มต้น
+  const resetGv = gv => gv.forEach(c => { c.cHp = c.hp||0; c.cAtk = c.atk||0; c.tempBuff=0; c.dragonBuff=0; });
+  resetGv(GS.me.graveyard); resetGv(GS.enemy.graveyard);
   document.getElementById('mdcnt').textContent=GS.me.deck.length;
   document.getElementById('edcnt').textContent=GS.enemy.deck.length;
   // graveyard counts + top card preview
@@ -1675,7 +1775,7 @@ function playCard(cuid){
     window._pendingActionCard = card;
     log(`✨ ใช้ ${card.name}`,'li');
     animateAction(card);
-    window._pushAction?.({type:'play', cardName: card.name, cardType: card.t});
+    window._pushAction?.({type:'play', cardName: card.name, cardType: card.t, cardData: card});
     doAction(card,'me');
     // ถ้า doAction sync (ไม่มี showTgt) → clear pending และ push graveyard
     if(window._pendingActionCard === card){
@@ -1955,6 +2055,12 @@ function animateCombat(attackerEl, targetEl, onDone){
   },420);
 }
 
+function animateToGraveyard(cardEl, onDone){
+  if(!cardEl){onDone?.();return;}
+  cardEl.classList.add('to-grave-anim');
+  setTimeout(()=>{ cardEl.remove(); onDone?.(); }, 680);
+}
+
 function animateDie(cardEl){
   if(!cardEl)return;
   cardEl.classList.add('die-anim');
@@ -2176,7 +2282,7 @@ function doAction(card,w){
       if(isAI){
         p.graveyard.push(p.hand.shift());
         const best=[...units2].sort((a,b)=>b.cAtk-a.cAtk)[0];
-        best.cAtk+=3; best.doubleAtk=true; best.exhausted=false;
+        best.cAtk+=3; best.dragonBuff=(best.dragonBuff||0)+3; best.doubleAtk=true; best.exhausted=false;
         log(`🐉 ${best.name}: ATK+3 โจมตีได้ 2 ครั้ง!`,'lh');
         renderAll();
       } else {
@@ -2195,6 +2301,7 @@ function doAction(card,w){
                 const t=p.field.find(c=>c.uid===uid);
                 if(t){
                   t.cAtk+=3;
+                  t.dragonBuff=(t.dragonBuff||0)+3; // track เพื่อ reset ตอนจบเทิร์น
                   t.attackCount=(t.attackCount||1)+1;
                   t.doubleAtk=true; t.exhausted=false;
                   log(`🐉 ${t.name}: ATK+3 โจมตีได้ ${t.attackCount} ครั้ง!`,'lh');
@@ -2458,7 +2565,14 @@ function atkTarget(tuid){
         if(counterAtk>=atker.cHp){
           atker.items=[];
           const idx=GS.me.field.indexOf(atker);
-          if(idx!==-1){GS.me.field.splice(idx,1);GS.me.graveyard.push(atker);log(`💀 ${atker.name} ตายจากโต้กลับ!`,'la');}
+          if(idx!==-1){
+            GS.me.field.splice(idx,1);
+            GS.me.graveyard.push(atker);
+            log(`💀 ${atker.name} ตายจากโต้กลับ!`,'la');
+            // animate การ์ดของเราลงสุสาน
+            const dEl = document.querySelector(`#mf [data-uid="${atker.uid}"]`);
+            if(dEl) animateToGraveyard(dEl);
+          }
           if(counterAtk===atker.cHp && GS.enemy.field.includes(target)){
             log(`💀 ${target.name} ตายคู่!`,'la');
             killEnemyCard(target);
@@ -2708,47 +2822,50 @@ function aiTurn(){
   log(`🤖 ${GS.enemy.name} เริ่มเทิร์น`,'li');
   drawCard('enemy',2);
 
-  // แยก unit cards และ action cards ที่จะเล่น
   const toPlay=[...GS.enemy.hand];
   const units=toPlay.filter(c=>c.t==='unit');
   const actions=toPlay.filter(c=>c.t==='action'&&Math.random()>.45);
 
-  // ลง unit ก่อน (ทันที ไม่ต้องรอ)
+  // ลง unit ทีละใบ พร้อม delay และ animation
+  let unitDelay=200;
   units.forEach(c=>{
-    if(GS.enemy.field.filter(x=>!x.ignoreLimit).length<5){
+    setTimeout(()=>{
+      if(!GS.enemy.hand.includes(c)) return;
+      if(GS.enemy.field.filter(x=>!x.ignoreLimit).length>=5) return;
       GS.enemy.hand.splice(GS.enemy.hand.indexOf(c),1);
       freshToField(c, GS.enemy.field);
       log(`🤖 AI ลงยูนิท: ${c.name}`,'li');
+      ss(`🤖 AI ลง "${c.name}" ลงสนาม!`);
       onPlay(c,'enemy');
-    }
+      renderAll();
+    }, unitDelay);
+    unitDelay+=800;
   });
-  renderAll();
 
-  // เล่น action ทีละใบพร้อม animation โชว์ผู้เล่น
-  let delay=300;
+  // เล่น action หลัง unit ลงหมดแล้ว
+  let delay=unitDelay+300;
   actions.forEach(c=>{
-    if(!GS.enemy.hand.includes(c)) return; // อาจถูกใช้ไปแล้ว
+    if(!GS.enemy.hand.includes(c)) return;
     GS.enemy.hand.splice(GS.enemy.hand.indexOf(c),1);
     setTimeout(()=>{
-      // แสดง toast + animation ให้ผู้เล่นรู้
       showAIActionToast(c, ()=>{
         doAction(c,'enemy');
         GS.enemy.graveyard.push(c);
         renderAll();
       });
     }, delay);
-    delay+=2200; // เว้นระยะแต่ละใบ
+    delay+=2200;
   });
 
   setTimeout(()=>{ renderAll(); setTimeout(aiAtk,300); }, delay+100);
 }
 
 // Toast แสดง AI ใช้การ์ด action
-function showAIActionToast(card, onDone){
-  // แสดง action animation ปกติก่อน
+function showAIActionToast(card, onDone, label){
   animateAction(card);
-  log(`🤖 AI ใช้แอคชั่น: ${card.name} — ${card.eff||''}`, 'la');
-  ss(`🤖 AI ใช้การ์ด "${card.name}"!`);
+  const lbl = label || '🤖 AI ใช้การ์ด';
+  log(`${lbl}: ${card.name} — ${card.eff||''}`, 'la');
+  ss(`${lbl} "${card.name}"!`);
 
   // แสดง banner กลางจอ 700ms แล้วค่อย resolve
   const banner=document.createElement('div');
@@ -2763,7 +2880,7 @@ function showAIActionToast(card, onDone){
   `;
   const src=getImg(card.dn,card.img);
   banner.innerHTML=`
-    <div style="font-size:10px;color:rgba(244,232,193,.6);letter-spacing:2px;margin-bottom:6px">🤖 AI ใช้การ์ด</div>
+    <div style="font-size:10px;color:rgba(244,232,193,.6);letter-spacing:2px;margin-bottom:6px">${lbl}</div>
     ${src?`<img src="${src}" style="width:80px;height:52px;object-fit:cover;border-radius:4px;margin-bottom:8px;display:block;margin:0 auto 8px">`:''}
     <div style="font-size:14px;font-weight:700;color:var(--gold);margin-bottom:6px">${card.name}</div>
     <div style="font-size:10px;color:rgba(244,232,193,.8);line-height:1.5">${card.eff||''}</div>
@@ -2952,6 +3069,188 @@ let selDk=null;
 function goDecks(){myName=document.getElementById('inp').value.trim()||'ผู้เล่น';document.getElementById('dssub').textContent=`${myName}, เลือก 1 เด็คเพื่อออกรบ`;showSc('ds');}
 function pick(n){selDk=n;window.selDk=n;document.querySelectorAll('.dcard').forEach((el,i)=>el.classList.toggle('sel',i+1===n));document.getElementById('cfbtn').style.display='block';}
 function confirm_deck(){if(!selDk)return;if(window.isOnline){return;}const e=[1,2,3,4].filter(x=>x!==selDk);initGame(selDk,e[Math.floor(Math.random()*e.length)]);}
+
+// ====== TUTORIAL SYSTEM ======
+let _tutStep = 0;
+let _tutActive = false;
+
+const _tutSteps = [
+  {
+    title: '🎮 ยินดีต้อนรับสู่ Dreamania!',
+    msg: 'นี่คือเกมการ์ดต่อสู้ เป้าหมายคือทำลาย HP ของฝ่ายตรงข้ามให้หมด เริ่มจากการเรียนรู้พื้นฐานกัน!',
+    highlight: null,
+    action: 'next'
+  },
+  {
+    title: '🃏 มือของคุณ',
+    msg: 'นี่คือการ์ดในมือของคุณ กดการ์ดเพื่อดูรายละเอียด แล้วกด "วาง" เพื่อลงสนาม\n\nลองกดการ์ดในมือดูครับ!',
+    highlight: 'mhand',
+    action: 'playCard' // รอให้ผู้เล่นลงการ์ด
+  },
+  {
+    title: '⚔ โหมดโจมตี',
+    msg: 'เยี่ยม! การ์ดลงสนามแล้ว ตอนนี้ลองโจมตีฝ่ายตรงข้ามดู\nกดปุ่ม "⚔ โหมดโจมตี" แล้วเลือกการ์ดของคุณ จากนั้นกดการ์ดศัตรู',
+    highlight: 'batk',
+    action: 'attack'
+  },
+  {
+    title: '🎯 ตีตรงออร์บ',
+    msg: 'ถ้าฝ่ายตรงข้ามไม่มียูนิทที่มีโล่ (🛡️) คุณสามารถตีตรงออร์บได้!\nกด "⚔ โหมดโจมตี" → เลือกยูนิทของคุณ → กด "🎯 ตีตรง"',
+    highlight: 'bdir',
+    action: 'direct'
+  },
+  {
+    title: '🔄 จบเทิร์น',
+    msg: 'พอโจมตีเสร็จแล้ว กด "จบเทิร์น" เพื่อส่งเทิร์นให้ฝ่ายตรงข้าม\nคุณจะจั่วการ์ด 2 ใบตอนต้นเทิร์นถัดไปของคุณ',
+    highlight: 'bend',
+    action: 'endTurn'
+  },
+  {
+    title: '🏆 เงื่อนไขชนะ',
+    msg: 'ทำลาย HP ของฝ่ายตรงข้ามให้หมด (เริ่มที่ 8 ❤️) เพื่อชนะ!\nถ้าการ์ดในกองหมด ฝ่ายที่กองหมดก่อนแพ้\n\nคุณพร้อมแล้ว! ลองเล่นจริงได้เลย 🎉',
+    highlight: null,
+    action: 'done'
+  }
+];
+
+function startTutorial(){
+  myName = 'ผู้เล่น';
+  _tutActive = true;
+  _tutStep = 0;
+
+  // สร้าง GS tutorial พิเศษ
+  const dummyCard = (name, atk, hp, sh=false) => ({
+    id:'tut_dummy', name, t:'unit', atk, hp, sh,
+    cAtk:atk, cHp:hp, img:'goblin', dn:1,
+    eff:'การ์ด tutorial', uid:uid(),
+    exhausted:false, tempBuff:0, items:[], hitsDone:0
+  });
+
+  // การ์ดในมือผู้เล่น — ง่ายๆ เข้าใจง่าย
+  const tutHand = [
+    {...DB[1].find(c=>c.id==='w_goblin'), uid:uid(), cHp:3, cAtk:2, exhausted:false, tempBuff:0, items:[], hitsDone:0},
+    {...DB[1].find(c=>c.id==='w_rat'),    uid:uid(), cHp:2, cAtk:2, exhausted:false, tempBuff:0, items:[], hitsDone:0},
+    {...DB[1][0], uid:uid(), cHp:DB[1][0].hp, cAtk:DB[1][0].atk, exhausted:false, tempBuff:0, items:[], hitsDone:0}
+  ].filter(Boolean);
+
+  GS = {
+    me:    { name:'ผู้เล่น', hp:8, deck:[], hand:tutHand, field:[], graveyard:[] },
+    enemy: { name:'หุ่นฝึกซ้อม', hp:8, deck:[], hand:[], field:[
+      dummyCard('หุ่นฝึก A', 1, 3),
+      dummyCard('หุ่นฝึก B', 1, 2, true)
+    ], graveyard:[] }
+  };
+
+  myDN = 1;
+  isMyTurn = true; turnNum = 1; atkMode = false; eqMode = false; attackers = [];
+  document.getElementById('mname').textContent = 'ผู้เล่น';
+  document.getElementById('ename').textContent = '🎯 หุ่นฝึกซ้อม';
+  document.getElementById('batk').disabled = false;
+  document.getElementById('bend').disabled = false;
+  showSc('gs'); renderAll();
+  ss('โหมด Tutorial — ทำตามคำแนะนำ');
+
+  setTimeout(()=>_tutShowStep(), 400);
+}
+
+function _tutShowStep(){
+  if(!_tutActive) return;
+  const step = _tutSteps[_tutStep];
+  if(!step) return;
+
+  // ลบ overlay เก่า
+  document.getElementById('tut-overlay')?.remove();
+  document.querySelectorAll('.tut-hl').forEach(e=>e.classList.remove('tut-hl'));
+
+  // highlight element
+  if(step.highlight){
+    document.getElementById(step.highlight)?.classList.add('tut-hl');
+  }
+
+  // สร้าง overlay คำแนะนำ
+  const box = document.createElement('div');
+  box.id = 'tut-overlay';
+  box.style.cssText = `
+    position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+    background:linear-gradient(135deg,#1a0a00,#2d1500);
+    border:2px solid rgba(201,162,39,.8);border-radius:12px;
+    padding:16px 20px;max-width:360px;width:90%;z-index:400;
+    box-shadow:0 4px 24px rgba(0,0,0,.7);
+    animation:tutpop .3s cubic-bezier(.175,.885,.32,1.275);
+  `;
+  box.innerHTML = `
+    <div style="font-family:'Cinzel',serif;font-size:13px;color:#f4c842;margin-bottom:6px">${step.title}</div>
+    <div style="font-size:11px;color:#f4e8c1;line-height:1.6;white-space:pre-line;margin-bottom:12px">${step.msg}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-size:10px;color:#888">${_tutStep+1} / ${_tutSteps.length}</div>
+      <div style="display:flex;gap:8px">
+        ${step.action==='done'
+          ? `<button onclick="endTutorial()" style="background:#c9a227;color:#1a0a00;border:none;border-radius:6px;padding:6px 16px;font-family:'Cinzel',serif;font-size:11px;cursor:pointer">เริ่มเล่นจริง! 🎮</button>`
+          : step.action==='next'
+            ? `<button onclick="_tutNext()" style="background:#2a4a2a;color:#9eff9e;border:1px solid #4a8a4a;border-radius:6px;padding:6px 16px;font-family:'Cinzel',serif;font-size:11px;cursor:pointer">ถัดไป →</button>`
+            : `<button onclick="_tutNext()" style="background:rgba(255,255,255,.1);color:#aaa;border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:6px 12px;font-size:10px;cursor:pointer">ข้าม</button>`
+        }
+        ${_tutStep>0 ? `<button onclick="endTutorial()" style="background:transparent;color:#666;border:none;font-size:10px;cursor:pointer">ออก</button>` : ''}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(box);
+
+  // ถ้า step รอ action ให้ hook
+  if(step.action === 'playCard') _tutWatchPlayCard();
+  if(step.action === 'attack')   _tutWatchAttack();
+  if(step.action === 'direct')   _tutWatchDirect();
+  if(step.action === 'endTurn')  _tutWatchEndTurn();
+}
+
+function _tutNext(){
+  _tutStep++;
+  if(_tutStep >= _tutSteps.length){ endTutorial(); return; }
+  _tutShowStep();
+}
+
+function _tutWatchPlayCard(){
+  // เมื่อผู้เล่นลงการ์ด GS.me.field จะมีการ์ด
+  const check = setInterval(()=>{
+    if(!_tutActive){ clearInterval(check); return; }
+    if(GS?.me?.field?.length > 0){ clearInterval(check); _tutNext(); }
+  }, 500);
+}
+
+function _tutWatchAttack(){
+  const check = setInterval(()=>{
+    if(!_tutActive){ clearInterval(check); return; }
+    // รอให้มีการโจมตีเกิดขึ้น (enemy HP ลด หรือ enemy field การ์ดตาย)
+    const origHp = 8;
+    if(GS?.enemy?.hp < origHp || GS?.enemy?.field?.length < 2){
+      clearInterval(check); _tutNext();
+    }
+  }, 500);
+}
+
+function _tutWatchDirect(){
+  const check = setInterval(()=>{
+    if(!_tutActive){ clearInterval(check); return; }
+    if(GS?.enemy?.hp < 7){ clearInterval(check); _tutNext(); }
+  }, 500);
+}
+
+function _tutWatchEndTurn(){
+  const origTurn = turnNum;
+  const check = setInterval(()=>{
+    if(!_tutActive){ clearInterval(check); return; }
+    if(turnNum > origTurn){ clearInterval(check); _tutNext(); }
+  }, 500);
+}
+
+function endTutorial(){
+  _tutActive = false;
+  _tutStep = 0;
+  document.getElementById('tut-overlay')?.remove();
+  document.querySelectorAll('.tut-hl').forEach(e=>e.classList.remove('tut-hl'));
+  showSc('ts');
+  GS = null;
+}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDet();cancelAll();}});
 // fallback สำหรับ Firebase module functions ที่อาจโหลดไม่ทัน
 function switchTab(tab){
@@ -2970,7 +3269,12 @@ function handleConfirmDeck(){
 window._origEndTurn = function(){
   if(!isMyTurn)return;
   log('─── จบเทิร์น '+turnNum+' ───','li');
-  GS.me.field.forEach(c=>{c.exhausted=false;c.tempBuff=0;c.hitsDone=0;if(c.hasSwordCurse)c.attackCount=2;else if(c.attackCount>1)c.attackCount=1;});
+  GS.me.field.forEach(c=>{
+    c.exhausted=false;c.tempBuff=0;c.hitsDone=0;
+    if(c.dragonBuff){c.cAtk-=c.dragonBuff;c.dragonBuff=0;}
+    if(c.hasSwordCurse)c.attackCount=2;else if(c.attackCount>1)c.attackCount=1;
+    if(!c.hasSwordCurse)c.doubleAtk=false;
+  });
   isMyTurn=false;atkMode=false;eqMode=false;attackers=[];
   document.getElementById('batk').disabled=true;document.getElementById('bend').disabled=true;
   document.getElementById('bcan').style.display='none';
@@ -2983,6 +3287,7 @@ window.drawCard=drawCard; window.renderAll=renderAll; window.renderHp=renderHp;
 window.initGame=initGame; window.showSc=showSc;
 window.showDamage=showDamage; window.animateCombat=animateCombat; window.animateDie=animateDie;
 window.imgTag=imgTag; window.freshToField=freshToField; window.onPlay=onPlay;
+window.showAIActionToast=showAIActionToast;
 window.DB=DB;
 </script>
 </body>
