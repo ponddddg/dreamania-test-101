@@ -521,6 +521,7 @@ let _deckChosen = false;
 // piggy — ใช้ window เพื่อให้ main script เข้าถึงได้
 window._piggyActive    = false;
 window._piggyDmgTaken  = 0;
+window._piggyLastHp    = undefined; // HP ล่าสุดที่ track เพื่อป้องกันบวกซ้ำ
 
 // ====== ฟังก์ชัน utility ======
 function lobbyStatus(msg, color) {
@@ -677,9 +678,9 @@ function _handleRoom(room) {
     // Firebase ไม่เก็บ empty array → normalize คืนให้ครบ
     const fixCard = c => {
       c.items = c.items || [];
-      c.counterStance = c.counterStance || false;
-      c.exhausted = c.exhausted || false;
-      c.hitsDone = c.hitsDone || 0;
+      if(c.counterStance === undefined) c.counterStance = false;
+      if(c.exhausted === undefined) c.exhausted = false;
+      if(c.hitsDone === undefined) c.hitsDone = 0;
       return c;
     };
     const fix = p => {
@@ -695,7 +696,6 @@ function _handleRoom(room) {
     // GS ใน Firebase เก็บจาก perspective ของคนที่เพิ่ง endTurn (me=เขา enemy=เรา)
     // ถ้าไม่ใช่เทิร์นเรา → swap กลับเพื่อให้ me=ตัวเอง enemy=คู่แข่งเสมอ
     const isOurTurn = (room.currentTurn === _myRole);
-    const prevMyHp  = window.GS?.me?.hp;
 
     if(!isOurTurn){
       window.GS = { me: room.GS.enemy, enemy: room.GS.me };
@@ -703,11 +703,8 @@ function _handleRoom(room) {
       window.GS = room.GS;
     }
 
-    // track HP ที่เสียระหว่างเทิร์นศัตรู (สำหรับ piggy)
-    const newMyHp = window.GS?.me?.hp;
-    if(window._piggyActive && prevMyHp !== undefined && newMyHp < prevMyHp){
-      window._piggyDmgTaken += prevMyHp - newMyHp;
-    }
+    // piggy tracking ย้ายไปที่ _listenActions ตอน direct attack แล้ว
+    if(isOurTurn) window._piggyLastHp = undefined;
 
     const newTurnNum = room.turnNum || 1;
     const turnChanged = newTurnNum !== window.turnNum;
@@ -916,6 +913,18 @@ function _listenActions() {
         el.style.transition = 'outline .6s';
         setTimeout(() => el.style.outline = '2px solid transparent', 800);
       }, 100);
+    } else if (a.type === 'bonusDmg') {
+      window.log?.(`⚡ [คู่แข่ง] ${a.cardName}: โบนัส -${a.dmg} HP!`, 'la');
+      if(window.GS?.me){
+        window.GS.me.hp = Math.max(0, window.GS.me.hp - a.dmg);
+        window.renderHp?.('me');
+        window.renderHp?.('enemy');
+        const orbEl = document.getElementById('mhp');
+        if(orbEl){
+          const r = orbEl.getBoundingClientRect();
+          window.showDamage?.(r.left+r.width/2, r.top+r.height/2, a.dmg, '#ff4444');
+        }
+      }
     } else if (a.type === 'taxDraw') {
       window.log?.(`📖 ภาษี: ${a.targetName} ตาย → จั่ว 1 ใบ!`, 'lh');
       window.drawCard?.('me', 1, true);
@@ -941,7 +950,12 @@ function _listenActions() {
         const hpBefore = window.GS.me.hp;
         window.GS.me.hp = Math.max(0, window.GS.me.hp - a.dmg);
         window.log?.(`🎯 [คู่แข่ง] โจมตีตรง -${a.dmg} HP!`, 'la');
-        // ไม่ track piggy ที่นี่ — ให้ _handleRoom track จาก HP diff เมื่อ GS sync แทน
+        // track piggy ตรงนี้ — รู้ dmg แน่นอนจาก action
+        if(window._piggyActive){
+          const actual = hpBefore - window.GS.me.hp;
+          window._piggyDmgTaken += actual;
+          window._piggyLastHp = window.GS.me.hp;
+        }
 
         const wizInHand = window.GS.me.hand?.find(c => c.id === 'a_wizw');
         const wizTriggered = !!(wizInHand && (window.GS.me.field?.filter(c=>!c.ignoreLimit).length||0) < 5);
@@ -950,12 +964,14 @@ function _listenActions() {
           window.GS.me.hand.splice(window.GS.me.hand.indexOf(wizInHand), 1);
           window.freshToField?.(wizInHand, window.GS.me.field);
           window.log?.(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ! บังคับฝ่ายตรงข้ามจบเทิร์น!`, 'lh');
+          window.onPlay?.(wizInHand, 'me'); // trigger sp_play ของพ่อมดขาว (ถ้ามี)
           const rabbit = window.GS.me.graveyard?.find(c => c.id === 'a_rabbit');
           if(rabbit){
             window.GS.me.graveyard.splice(window.GS.me.graveyard.indexOf(rabbit), 1);
             rabbit.ignoreLimit = true;
             window.freshToField?.(rabbit, window.GS.me.field);
             window.log?.(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน! (ไม่นับลิมิต)`, 'lh');
+            window.onPlay?.(rabbit, 'me'); // trigger summon_top → อาจเรียกซัคคิวบัสได้ถูก
           }
           window._pushAction?.({type:'wizSummon', cardName: wizInHand.name, forceEndTurn: true});
         }
@@ -1599,13 +1615,14 @@ function doEquipTo(targetUid){
   log(`🔧 ${eqItemCard.name} สวมใส่ ${target.name}`,'lh');
   eqMode=false;eqItemCard=null;
   document.getElementById('bcan').style.display='none';
+  window._pushGS?.();
   renderAll();
   ss('สวมไอเทมสำเร็จ!');
 }
 
 function applyItemEffect(target,item,who){
   switch(item.ieff){
-    case 'buff_atk2': target.cAtk+=2; log(`⚡ ${target.name}: ATK+2`,'lh'); break;
+    case 'buff_atk2': target.cAtk+=2; log(`⚡ ${target.name}: ATK+2`,'lh'); window._pushGS?.(); break;
     case 'buff_hp2':  target.cHp+=2; target.hp+=2; log(`💚 ${target.name}: HP+2`,'lh'); break;
     // ดาบต้องสาป: doubleAtk ถาวร ไม่มี ATK+2
     case 'sword_curse':
@@ -1702,6 +1719,7 @@ function onPlay(card,w){
     if(p.hand.length>=6){
       card.tempBuff=(card.tempBuff||0)+6;
       log(`🧌 ${card.name}: มือ ${p.hand.length} ใบ → ATK+6 เทิร์นนี้!`,'lh');
+      window._pushGS?.();
     }
   }
 
@@ -1766,33 +1784,38 @@ function onPlay(card,w){
   }
 
   if(card.sp_play==='copy'){
-    const allUnits=[...p.field.filter(c=>c.uid!==card.uid), ...opp.field].filter(c=>c.t==='unit');
-    if(!allUnits.length){log(`${card.name}: ไม่มียูนิทให้คัดลอก`,'li');return;}
-    const doCopy=uid=>{
-      // หา card จาก p.field โดยตรง เพื่อให้แก้ค่าใน object จริง
-      const target = p.field.find(c=>c.uid===card.uid) || card;
-      const src=[...p.field,...opp.field].find(c=>c.uid===uid);
-      if(!src)return;
-      target.name=src.name; target.eff=src.eff; target.cAtk=src.cAtk; target.cHp=src.cHp;
-      target.hp=src.hp; target.atk=src.atk; target.sh=src.sh; target.taunt=src.taunt;
-      target.direct=src.direct; target.death=src.death; target.bonusDmg=src.bonusDmg;
-      target.scaling=src.scaling; target.img=src.img; target.dn=src.dn;
-      target.sp_play=null;
-      log(`✨ ซัคคิวบัสจอมจำแลง คัดลอก ${src.name} (⚔${src.cAtk}/♥${src.cHp})!`,'lh');
-      window._pushAction?.({
-        type:'succubus', cardUid: target.uid,
-        newName: target.name, newAtk: target.cAtk, newHp: target.cHp,
-        newEff: target.eff, newImg: target.img, newDn: target.dn, newSh: target.sh
-      });
-      window._pushGS?.(); renderAll();
+    const cardUid = card.uid; // capture uid ก่อน เผื่อ reference เปลี่ยน
+    const doShowCopy = () => {
+      const allUnits=[...p.field.filter(c=>c.uid!==cardUid), ...opp.field].filter(c=>c.t==='unit');
+      if(!allUnits.length){log(`${card.name}: ไม่มียูนิทให้คัดลอก`,'li');return;}
+      const doCopy=uid=>{
+        const target = p.field.find(c=>c.uid===cardUid) || card;
+        const src=[...p.field,...opp.field].find(c=>c.uid===uid);
+        if(!src)return;
+        target.name=src.name; target.eff=src.eff; target.cAtk=src.cAtk; target.cHp=src.cHp;
+        target.hp=src.hp; target.atk=src.atk; target.sh=src.sh; target.taunt=src.taunt;
+        target.direct=src.direct; target.death=src.death; target.bonusDmg=src.bonusDmg;
+        target.scaling=src.scaling; target.img=src.img; target.dn=src.dn;
+        target.sp_play=null;
+        log(`✨ ซัคคิวบัสจอมจำแลง คัดลอก ${src.name} (⚔${src.cAtk}/♥${src.cHp})!`,'lh');
+        window._pushAction?.({
+          type:'succubus', cardUid: target.uid,
+          newName: target.name, newAtk: target.cAtk, newHp: target.cHp,
+          newEff: target.eff, newImg: target.img, newDn: target.dn, newSh: target.sh
+        });
+        commitActionCard();
+        window._pushGS?.(); renderAll();
+      };
+      if(w!=='me'){
+        const best=[...opp.field].sort((a,b)=>b.cAtk-a.cAtk)[0]||allUnits[0];
+        doCopy(best.uid);
+      } else {
+        showTgt('ซัคคิวบัสจอมจำแลง','เลือกยูนิทที่จะคัดลอกชื่อ, สกิล และสถานะ',
+          allUnits.map(c=>({label:`${opp.field.includes(c)?'[ศัตรู] ':'[เรา] '}${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})), doCopy);
+      }
     };
-    if(w!=='me'){
-      const best=[...opp.field].sort((a,b)=>b.cAtk-a.cAtk)[0]||allUnits[0];
-      doCopy(best.uid);
-    } else {
-      showTgt('ซัคคิวบัสจอมจำแลง','เลือกยูนิทที่จะคัดลอกชื่อ, สกิล และสถานะ',
-        allUnits.map(c=>({label:`${opp.field.includes(c)?'[ศัตรู] ':'[เรา] '}${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})), doCopy);
-    }
+    // delay เล็กน้อยให้ field settle ก่อน (กรณีถูกเรียกจาก merlin/fetch)
+    setTimeout(doShowCopy, 80);
   }
 
   if(card.scaling) card.cAtk=1+p.field.filter(c=>c.t==='unit').length;
@@ -2172,11 +2195,12 @@ function doAction(card,w){
                 const t=p.field.find(c=>c.uid===uid);
                 if(t){
                   t.cAtk+=3;
-                  t.attackCount=(t.attackCount||1)+1; // เพิ่ม 1 ครั้ง
+                  t.attackCount=(t.attackCount||1)+1;
                   t.doubleAtk=true; t.exhausted=false;
                   log(`🐉 ${t.name}: ATK+3 โจมตีได้ ${t.attackCount} ครั้ง!`,'lh');
+                  window._pushGS?.();
                 }
-                renderAll();
+                commitActionCard(); renderAll();
               });
           });
       }
@@ -2189,7 +2213,7 @@ function doAction(card,w){
         for(let i=0;i<num;i++) p.graveyard.push(p.hand.shift());
         p.field.forEach(c=>c.tempBuff=(c.tempBuff||0)+num);
         log(`⚡ ยูนิตได้ ATK+${num} จนจบเทิร์น`,'lh');
-        renderAll();
+        window._pushGS?.(); renderAll();
       };
       if(isAI){ doLimitbrk(1); } // AI ทิ้ง 1 ใบเสมอ
       else {
@@ -2205,10 +2229,24 @@ function doAction(card,w){
       if(!p.hand.length){ss('ต้องมีการ์ดในมือ!');renderAll();break;}
       const maxDiscard=Math.min(p.hand.length,6);
       const doMultieff=n=>{
-        for(let i=0;i<n;i++) p.graveyard.push(p.hand.shift());
-        log(`📤 ทิ้งการ์ด ${n} ใบ`,'li');
+        // ให้ผู้เล่นเลือกการ์ดที่จะทิ้งทีละใบ
+        const doDiscard=(remaining, done)=>{
+          if(remaining<=0){ done(); return; }
+          if(isAI){ p.graveyard.push(p.hand.shift()); doDiscard(remaining-1, done); return; }
+          showTgt(`ภารกิจ — ทิ้งการ์ด (เหลืออีก ${remaining} ใบ)`,
+            'เลือกการ์ดที่จะทิ้ง',
+            p.hand.map(c=>({label:c.name, key:c.uid})),
+            uid=>{
+              const ci=p.hand.findIndex(c=>c.uid===uid);
+              if(ci!==-1) p.graveyard.push(p.hand.splice(ci,1)[0]);
+              log(`📤 ทิ้ง 1 ใบ (เหลืออีก ${remaining-1} ใบ)`,'li');
+              doDiscard(remaining-1, done);
+            });
+        };
 
-        const doTier3=()=>{
+        doDiscard(n, ()=>{
+          log(`📤 ทิ้งการ์ดครบ ${n} ใบ`,'li');
+          commitActionCard();        const doTier3=()=>{
           const myUnits=p.field.filter(c=>c.t==='unit');
           if(!myUnits.length){renderAll();return;}
           const pickDouble=uid=>{
@@ -2253,6 +2291,7 @@ function doAction(card,w){
         };
 
         doTier1();
+        }); // end doDiscard callback
       };
       if(isAI){ doMultieff(Math.min(maxDiscard,2)); } // AI ทิ้งน้อยสุดเสมอ
       else {
@@ -2276,8 +2315,17 @@ function doAction(card,w){
         if(!deckUnits.length||p.field.filter(c=>!c.ignoreLimit).length>=5){renderAll();return;}
         const doDeploy=dUid=>{
           const d=p.deck.find(c=>c.uid===dUid);
-          if(d){p.deck.splice(p.deck.indexOf(d),1);freshToField(d,p.field);log(`▶ ${d.name} ลงสนาม!`,'lh');onPlay(d,w);}
-          commitActionCard();window._pushGS?.();renderAll();
+          if(d){
+            p.deck.splice(p.deck.indexOf(d),1);
+            freshToField(d,p.field);
+            log(`▶ ${d.name} ลงสนาม!`,'lh');
+            onPlay(d,w); // onPlay จะ _pushGS เองถ้า copy เสร็จ
+            // push GS เฉพาะถ้าไม่ใช่ซัคคิวบัส (ซัคคิวบัสรอ copy เสร็จก่อน)
+            if(d.sp_play !== 'copy') { commitActionCard(); window._pushGS?.(); }
+          } else {
+            commitActionCard(); window._pushGS?.();
+          }
+          renderAll();
         };
         if(isAI){ doDeploy(deckUnits[0].uid); }
         else setTimeout(()=>showTgt('การแสดงอันหลอกลวง — เลือกจากกอง','เลือกยูนิทที่จะลงสนามทันที',
@@ -2295,6 +2343,7 @@ function doAction(card,w){
       if(w==='me' && window.isOnline){
         window._piggyActive = true;
         window._piggyDmgTaken = 0;
+        window._piggyLastHp = GS[w].hp; // baseline HP ตอน activate
       }
       log(`🐷 ดอกเบี้ยทบต้น: ใช้งาน! HP ตอนนี้=${GS[w].hp} ถ้าเสียเลือดในเทิร์นศัตรู จะจั่วเพิ่มเทิร์นหน้า`,'lh');
       renderAll();break;
@@ -2365,15 +2414,18 @@ function atkTarget(tuid){
   // คำนวณดาเมจปกติ
   const pw = attackerCards.reduce((s,c)=>s+(c.cAtk+(c.tempBuff||0)),0);
 
-  if(pw<target.cHp){ss(`⚠️ ATK ${pw} ไม่พอทำลาย ${target.name} (HP:${target.cHp}) — ต้องตีให้ตายทีเดียว!`);return;}
+  // capture counter state ก่อน animation
+  const hasCounter = !!target.counterStance;
+  const counterAtk = target.cAtk;
 
-  // check counter (โต้กลับ) ก่อน resolve ดาเมจ
-  const hasCounter = target.counterStance;
+  // ถ้าไม่มีโต้กลับ ต้องตีให้ตายทีเดียว
+  if(pw<target.cHp && !hasCounter){ss(`⚠️ ATK ${pw} ไม่พอทำลาย ${target.name} (HP:${target.cHp}) — ต้องตีให้ตายทีเดียว!`);return;}
 
   const atkEl=document.querySelector(`#mf [data-uid="${attackers[0]}"]`);
   const tgtEl=document.querySelector(`#ef [data-uid="${tuid}"]`);
 
   animateCombat(atkEl, tgtEl, ()=>{
+    const hpBeforeHit = target.cHp; // capture ก่อนถูกตี
     target.cHp-=pw;
     log(`⚔ โจมตี ${target.name} ด้วย ATK ${pw}!`,'la');
     window._pushAction?.({type:'atk', attackers: attackerCards.map(c=>c.name), attackerUids: attackerCards.map(c=>c.uid), targetName: target.name, targetUid: tuid, pw});
@@ -2396,19 +2448,17 @@ function atkTarget(tuid){
     }
   });
 
-    // ข้อ 4: โต้กลับ
-    if(hasCounter && target.cHp>0){
-      target.counterStance=false; // ใช้ครั้งเดียว
-      // remove counter from items
+    // ข้อ 4: โต้กลับ — ใช้ HP ก่อนถูกตี ไม่ใช่หลัง
+    if(hasCounter && hpBeforeHit > 0){
+      target.cHp = hpBeforeHit; // reset HP กลับก่อน counter (ป้องกัน HP ติดลบ)
+      target.counterStance=false;
       if(target.items) target.items=target.items.filter(it=>it.ieff!=='counter');
       attackerCards.forEach(atker=>{
-        const counterAtk=target.cAtk;
         log(`🔄 โต้กลับ! ${target.name} (⚔${counterAtk}) → ${atker.name} (♥${atker.cHp})`,'la');
         if(counterAtk>=atker.cHp){
           atker.items=[];
           const idx=GS.me.field.indexOf(atker);
           if(idx!==-1){GS.me.field.splice(idx,1);GS.me.graveyard.push(atker);log(`💀 ${atker.name} ตายจากโต้กลับ!`,'la');}
-          // ตายคู่ถ้า counterAtk พอดี HP ของผู้โจมตี
           if(counterAtk===atker.cHp && GS.enemy.field.includes(target)){
             log(`💀 ${target.name} ตายคู่!`,'la');
             killEnemyCard(target);
@@ -2417,6 +2467,7 @@ function atkTarget(tuid){
           log(`โต้กลับ: ATK ${counterAtk} < HP ${atker.cHp} — ไม่มีผล`,'li');
         }
       });
+      window._pushGS?.();
     }
 
     if(target.cHp<=0 && GS.enemy.field.includes(target)){
@@ -2451,7 +2502,11 @@ function atkTarget(tuid){
         }
 
         attackerCards.forEach(c=>{
-          if(c.bonusDmg&&target.sh){GS.enemy.hp=Math.max(0,GS.enemy.hp-1);log(`⚡ ${c.name}: โบนัส -1 HP!`,'la');}
+          if(c.bonusDmg&&target.sh){
+            GS.enemy.hp=Math.max(0,GS.enemy.hp-1);
+            log(`⚡ ${c.name}: โบนัส -1 HP!`,'la');
+            window._pushAction?.({type:'bonusDmg', dmg:1, cardName:c.name});
+          }
           if(c.items&&c.items.find(it=>it.ieff==='draw_on_kill')){drawCard('me',1,true);log(`🗡 ${c.name}: ศาสตราวุธ → จั่ว 1 ใบ!`,'lh');}
         });
         if(target.death){
@@ -2898,6 +2953,19 @@ function goDecks(){myName=document.getElementById('inp').value.trim()||'ผู�
 function pick(n){selDk=n;window.selDk=n;document.querySelectorAll('.dcard').forEach((el,i)=>el.classList.toggle('sel',i+1===n));document.getElementById('cfbtn').style.display='block';}
 function confirm_deck(){if(!selDk)return;if(window.isOnline){return;}const e=[1,2,3,4].filter(x=>x!==selDk);initGame(selDk,e[Math.floor(Math.random()*e.length)]);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDet();cancelAll();}});
+// fallback สำหรับ Firebase module functions ที่อาจโหลดไม่ทัน
+function switchTab(tab){
+  document.querySelectorAll('.lobby-section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.ltab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab)?.classList.add('active');
+  document.querySelector('.ltab[onclick*="\''+tab+'\'"]')?.classList.add('active');
+}
+function handleConfirmDeck(){
+  if(!selDk){alert('กรุณาเลือกเด็คก่อน');return;}
+  if(window.isOnline){return;} // Firebase module จะ override นี้หลัง load
+  const e=[1,2,3,4].filter(x=>x!==selDk);
+  initGame(selDk,e[Math.floor(Math.random()*e.length)]);
+}
 // เก็บ AI endTurn ไว้ให้ Firebase module เรียกได้
 window._origEndTurn = function(){
   if(!isMyTurn)return;
@@ -2914,7 +2982,7 @@ window.shuffle=shuffle; window.mkCard=mkCard;
 window.drawCard=drawCard; window.renderAll=renderAll; window.renderHp=renderHp;
 window.initGame=initGame; window.showSc=showSc;
 window.showDamage=showDamage; window.animateCombat=animateCombat; window.animateDie=animateDie;
-window.imgTag=imgTag; window.freshToField=freshToField;
+window.imgTag=imgTag; window.freshToField=freshToField; window.onPlay=onPlay;
 window.DB=DB;
 </script>
 </body>
