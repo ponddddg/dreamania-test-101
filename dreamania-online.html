@@ -616,6 +616,7 @@ window.copyCode = function() {
 
 // ====== ฟัง Firebase ======
 let _handleRoomTimer = null;
+let _lastHandledTurn = -1; // guard ไม่ให้ handle turn เดิมซ้ำ
 function _scheduleHandleRoom() {
   clearTimeout(_handleRoomTimer);
   _handleRoomTimer = setTimeout(() => {
@@ -731,6 +732,9 @@ function _handleRoom(room) {
     if (window.isMyTurn) {
       document.getElementById('batk').disabled = false;
       document.getElementById('bend').disabled = false;
+      // guard: ถ้า turn นี้ handle ไปแล้ว ไม่ทำซ้ำ (ป้องกัน Firebase trigger หลายครั้ง)
+      if(_lastHandledTurn === window.turnNum) { window.renderAll(); return; }
+      _lastHandledTurn = window.turnNum;
       // piggy bonus draw
       if(window._piggyActive && window._piggyDmgTaken > 0){
         const bonus = window._piggyDmgTaken;
@@ -1528,7 +1532,8 @@ function buildECard(card){
   const bossAlive=GS.enemy.field.find(c=>c.id==='m_boss');
   const isJnrBlocked = card.id==='m_jnr' && bossAlive && bossAlive.uid!==card.uid;
   const canTgt=hasTgt&&(!tnt||tnt.uid===card.uid)&&!isJnrBlocked;
-  let cls='card ec'+(canTgt?' tgt':'');
+  // แสดง exhausted บน enemy card ให้ฝั่งตรงข้ามเห็นว่าการ์ดไหนโจมตีแล้ว
+  let cls='card ec'+(canTgt?' tgt':'')+(card.exhausted?' exh':'');
   const el=document.createElement('div');
   el.className=cls;
   el.setAttribute('data-uid', card.uid);
@@ -1744,7 +1749,15 @@ function applyItemEffect(target,item,who){
 function drawCard(w,n=1,animate=false){
   for(let i=0;i<n;i++){
     const p=GS[w];
-    if(!p.deck.length){log(`🃏 ${p.name} การ์ดหมด!`,'la');endGame(w==='me'?'enemy':'me',`${p.name} การ์ดหมด!`);return;}
+    if(!p.deck.length){
+      if(_tutActive){
+        // tutorial: ทั้งเราและหุ่นฝึก shuffle graveyard กลับเป็นเด็ค ไม่แพ้
+        if(p.graveyard.length>0){p.deck=shuffle([...p.graveyard]);p.graveyard=[];log('🔄 shuffle การ์ดกลับ','li');}
+        else return; // graveyard ก็หมด → ข้ามไป ไม่ endGame
+      } else {
+        log(`🃏 ${p.name} การ์ดหมด!`,'la');endGame(w==='me'?'enemy':'me',`${p.name} การ์ดหมด!`);return;
+      }
+    }
     p.hand.push(p.deck.shift());
     if(animate&&w==='me'){
       const deckEl=document.getElementById('mdcnt')?.closest('.zone-box');
@@ -2550,14 +2563,14 @@ function atkTarget(tuid){
     if(c.hitsDone>=maxHits){
       c.exhausted=true;
       c.hitsDone=0;
-      // reset dragon bonus (non-permanent)
       if(!c.hasSwordCurse){ c.doubleAtk=false; c.attackCount=1; }
     }
   });
+  // _pushGS จะถูกเรียกหลัง kill resolve แทน (ไม่เรียกที่นี่)
 
-    // ข้อ 4: โต้กลับ — ใช้ HP ก่อนถูกตี ไม่ใช่หลัง
+    // ข้อ 4: โต้กลับ — ทำงานเฉพาะตอน target มีชีวิตก่อนถูกตี
+    // ไม่ reset HP — ให้ target ตายตามปกติถ้า cHp <= 0
     if(hasCounter && hpBeforeHit > 0){
-      target.cHp = hpBeforeHit; // reset HP กลับก่อน counter (ป้องกัน HP ติดลบ)
       target.counterStance=false;
       if(target.items) target.items=target.items.filter(it=>it.ieff!=='counter');
       attackerCards.forEach(atker=>{
@@ -2569,19 +2582,15 @@ function atkTarget(tuid){
             GS.me.field.splice(idx,1);
             GS.me.graveyard.push(atker);
             log(`💀 ${atker.name} ตายจากโต้กลับ!`,'la');
-            // animate การ์ดของเราลงสุสาน
             const dEl = document.querySelector(`#mf [data-uid="${atker.uid}"]`);
             if(dEl) animateToGraveyard(dEl);
           }
-          if(counterAtk===atker.cHp && GS.enemy.field.includes(target)){
-            log(`💀 ${target.name} ตายคู่!`,'la');
-            killEnemyCard(target);
-          }
+
         } else {
           log(`โต้กลับ: ATK ${counterAtk} < HP ${atker.cHp} — ไม่มีผล`,'li');
         }
       });
-      window._pushGS?.();
+      // ไม่ pushGS ที่นี่ — รอให้ kill resolve ก่อน
     }
 
     if(target.cHp<=0 && GS.enemy.field.includes(target)){
@@ -2628,12 +2637,13 @@ function atkTarget(tuid){
             const idx=GS.me.field.indexOf(kil);
             if(idx!==-1){kil.items=[];GS.me.field.splice(idx,1);GS.me.graveyard.push(kil);log(`💥 ${target.name}: ${kil.name} ตายตาม!`,'la');}
           });
-          window._pushGS?.();
         }
         resolvePostAtk(attackerCards);
+        window._pushGS?.(); // push ใน setTimeout หลัง kill เสร็จ
       }, 480);
     } else {
       resolvePostAtk(attackerCards);
+      window._pushGS?.(); // กรณีไม่ตาย push ทันที
     }
   });
 }
@@ -3088,6 +3098,12 @@ const _tutSteps = [
     action: 'playCard' // รอให้ผู้เล่นลงการ์ด
   },
   {
+    title: '😴 เทิร์นแรกโจมตีไม่ได้!',
+    msg: 'การ์ดที่เพิ่งลงสนามในเทิร์นนั้น ยังโจมตีไม่ได้ทันที\n\nต้องกด "จบเทิร์น" ก่อน แล้วรอให้ถึงเทิร์นของคุณอีกครั้ง จึงจะโจมตีได้',
+    highlight: null,
+    action: 'next'
+  },
+  {
     title: '⚔ โหมดโจมตี',
     msg: 'เยี่ยม! การ์ดลงสนามแล้ว ตอนนี้ลองโจมตีฝ่ายตรงข้ามดู\nกดปุ่ม "⚔ โหมดโจมตี" แล้วเลือกการ์ดของคุณ จากนั้นกดการ์ดศัตรู',
     highlight: 'batk',
@@ -3171,10 +3187,10 @@ function _tutShowStep(){
   const box = document.createElement('div');
   box.id = 'tut-overlay';
   box.style.cssText = `
-    position:fixed;bottom:90px;left:50%;transform:translateX(-50%);
+    position:fixed;bottom:90px;right:12px;
     background:linear-gradient(135deg,#1a0a00,#2d1500);
     border:2px solid rgba(201,162,39,.8);border-radius:12px;
-    padding:16px 20px;max-width:360px;width:90%;z-index:400;
+    padding:16px 20px;max-width:300px;width:auto;z-index:400;
     box-shadow:0 4px 24px rgba(0,0,0,.7);
     animation:tutpop .3s cubic-bezier(.175,.885,.32,1.275);
   `;
