@@ -259,7 +259,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
 
 .tut-hl{outline:3px solid #f4c842!important;outline-offset:4px;animation:tuthl 1s ease-in-out infinite alternate;}
 @keyframes tuthl{0%{outline-color:#f4c842;box-shadow:0 0 8px rgba(244,200,66,.4)}100%{outline-color:#fff;box-shadow:0 0 16px rgba(244,200,66,.8)}}
-@keyframes tutpop{0%{transform:translateX(-50%) scale(.8);opacity:0}100%{transform:translateX(-50%) scale(1);opacity:1}}
+@keyframes tutpop{0%{transform:scale(.8);opacity:0}100%{transform:scale(1);opacity:1}}
 .ibadge{font-size:10px;background:rgba(0,0,0,.6);border-radius:3px;padding:1px 2px;}
 .buff-badge{position:absolute;top:2px;right:2px;font-size:9px;font-weight:700;background:#2a5a1a;color:#9eff9e;border-radius:3px;padding:1px 3px;}
 .dmg-float{
@@ -526,6 +526,7 @@ let _deckChosen = false;
 window._piggyActive    = false;
 window._piggyDmgTaken  = 0;
 window._piggyLastHp    = undefined; // HP ล่าสุดที่ track เพื่อป้องกันบวกซ้ำ
+let _preserveHand = null; // hand ที่ต้อง preserve หลัง action เช่น taxDraw
 
 // ====== ฟังก์ชัน utility ======
 function lobbyStatus(msg, color) {
@@ -616,7 +617,6 @@ window.copyCode = function() {
 
 // ====== ฟัง Firebase ======
 let _handleRoomTimer = null;
-let _lastHandledTurn = -1; // guard ไม่ให้ handle turn เดิมซ้ำ
 function _scheduleHandleRoom() {
   clearTimeout(_handleRoomTimer);
   _handleRoomTimer = setTimeout(() => {
@@ -717,6 +717,12 @@ function _handleRoom(room) {
     // piggy tracking ย้ายไปที่ _listenActions ตอน direct attack แล้ว
     if(isOurTurn) window._piggyLastHp = undefined;
 
+    // ถ้ามี hand ที่ต้อง preserve (เช่น taxDraw จั่วมาแล้วแต่ GS จากฝั่งตรงข้ามยังเป็นเก่า)
+    if(_preserveHand && _preserveHand.length > window.GS.me.hand.length){
+      window.GS.me.hand = _preserveHand;
+    }
+    _preserveHand = null;
+
     const newTurnNum = room.turnNum || 1;
     const turnChanged = newTurnNum !== window.turnNum;
     window.turnNum = newTurnNum;
@@ -732,9 +738,6 @@ function _handleRoom(room) {
     if (window.isMyTurn) {
       document.getElementById('batk').disabled = false;
       document.getElementById('bend').disabled = false;
-      // guard: ถ้า turn นี้ handle ไปแล้ว ไม่ทำซ้ำ (ป้องกัน Firebase trigger หลายครั้ง)
-      if(_lastHandledTurn === window.turnNum) { window.renderAll(); return; }
-      _lastHandledTurn = window.turnNum;
       // piggy bonus draw
       if(window._piggyActive && window._piggyDmgTaken > 0){
         const bonus = window._piggyDmgTaken;
@@ -1021,6 +1024,8 @@ function _listenActions() {
     } else if (a.type === 'taxDraw') {
       window.log?.(`📖 ภาษี: ${a.targetName} ตาย → จั่ว 1 ใบ!`, 'lh');
       window.drawCard?.('me', 1, true);
+      // เก็บ hand ไว้ ป้องกัน _handleRoom จาก GS เก่าของคู่แข่ง overwrite
+      _preserveHand = JSON.parse(JSON.stringify(window.GS?.me?.hand || []));
       window.renderAll?.();
     } else if (a.type === 'wizSummon') {
       window.log?.(`🧙‍♀️ [คู่แข่ง] ${a.cardName} ลงสนามจากมือ! ${a.forceEndTurn ? '— บังคับจบเทิร์น!' : ''}`, 'lh');
@@ -1749,15 +1754,7 @@ function applyItemEffect(target,item,who){
 function drawCard(w,n=1,animate=false){
   for(let i=0;i<n;i++){
     const p=GS[w];
-    if(!p.deck.length){
-      if(_tutActive){
-        // tutorial: ทั้งเราและหุ่นฝึก shuffle graveyard กลับเป็นเด็ค ไม่แพ้
-        if(p.graveyard.length>0){p.deck=shuffle([...p.graveyard]);p.graveyard=[];log('🔄 shuffle การ์ดกลับ','li');}
-        else return; // graveyard ก็หมด → ข้ามไป ไม่ endGame
-      } else {
-        log(`🃏 ${p.name} การ์ดหมด!`,'la');endGame(w==='me'?'enemy':'me',`${p.name} การ์ดหมด!`);return;
-      }
-    }
+    if(!p.deck.length){log(`🃏 ${p.name} การ์ดหมด!`,'la');endGame(w==='me'?'enemy':'me',`${p.name} การ์ดหมด!`);return;}
     p.hand.push(p.deck.shift());
     if(animate&&w==='me'){
       const deckEl=document.getElementById('mdcnt')?.closest('.zone-box');
@@ -2539,7 +2536,7 @@ function atkTarget(tuid){
   const counterAtk = target.cAtk;
 
   // ถ้าไม่มีโต้กลับ ต้องตีให้ตายทีเดียว
-  if(pw<target.cHp && !hasCounter){ss(`⚠️ ATK ${pw} ไม่พอทำลาย ${target.name} (HP:${target.cHp}) — ต้องตีให้ตายทีเดียว!`);return;}
+  if(pw<target.cHp && !hasCounter && !target.isTutorial){ss(`⚠️ ATK ${pw} ไม่พอทำลาย ${target.name} (HP:${target.cHp}) — ต้องตีให้ตายทีเดียว!`);return;}
 
   const atkEl=document.querySelector(`#mf [data-uid="${attackers[0]}"]`);
   const tgtEl=document.querySelector(`#ef [data-uid="${tuid}"]`);
@@ -2585,7 +2582,11 @@ function atkTarget(tuid){
             const dEl = document.querySelector(`#mf [data-uid="${atker.uid}"]`);
             if(dEl) animateToGraveyard(dEl);
           }
-
+          // ตายคู่เฉพาะตอน target ยังรอด (cHp > 0) และ ATK พอดี
+          if(counterAtk===atker.cHp && target.cHp > 0 && GS.enemy.field.includes(target)){
+            log(`💀 ${target.name} ตายคู่!`,'la');
+            killEnemyCard(target);
+          }
         } else {
           log(`โต้กลับ: ATK ${counterAtk} < HP ${atker.cHp} — ไม่มีผล`,'li');
         }
@@ -3149,9 +3150,17 @@ function startTutorial(){
     {...DB[1][0], uid:uid(), cHp:DB[1][0].hp, cAtk:DB[1][0].atk, exhausted:false, tempBuff:0, items:[], hitsDone:0}
   ].filter(Boolean);
 
+  const makeTutDeck = () => [
+    dummyCard('หุ่นฝึก C', 1, 2),
+    dummyCard('หุ่นฝึก D', 1, 3),
+    dummyCard('หุ่นฝึก E', 2, 2),
+    dummyCard('หุ่นฝึก F', 1, 2),
+    dummyCard('หุ่นฝึก G', 2, 3),
+  ];
+
   GS = {
-    me:    { name:'ผู้เล่น', hp:8, deck:[], hand:tutHand, field:[], graveyard:[] },
-    enemy: { name:'หุ่นฝึกซ้อม', hp:8, deck:[], hand:[], field:[
+    me:    { name:'ผู้เล่น', hp:8, deck:[...makeTutDeck()], hand:tutHand, field:[], graveyard:[] },
+    enemy: { name:'หุ่นฝึกซ้อม', hp:8, deck:[...makeTutDeck()], hand:[], field:[
       dummyCard('หุ่นฝึก A', 1, 3),
       dummyCard('หุ่นฝึก B', 1, 2, true)
     ], graveyard:[] }
