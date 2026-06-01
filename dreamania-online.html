@@ -1068,7 +1068,6 @@ function _listenActions() {
             rabbit.ignoreLimit = true;
             window.freshToField?.(rabbit, window.GS.me.field);
             window.log?.(`🐰 พ่อมดขาว: เรียกกระต่ายนำโชคจากสุสาน! (ไม่นับลิมิต)`, 'lh');
-            window.onPlay?.(rabbit, 'me'); // trigger summon_top → อาจเรียกซัคคิวบัสได้ถูก
           }
           window._pushAction?.({type:'wizSummon', cardName: wizInHand.name, forceEndTurn: true});
         }
