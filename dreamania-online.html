@@ -1062,7 +1062,6 @@ function _listenActions() {
           window.GS.me.hand.splice(window.GS.me.hand.indexOf(wizInHand), 1);
           window.freshToField?.(wizInHand, window.GS.me.field);
           window.log?.(`🧙‍♀️ พ่อมดขาว: ลงสนามจากมือ! บังคับฝ่ายตรงข้ามจบเทิร์น!`, 'lh');
-          window.onPlay?.(wizInHand, 'me'); // trigger sp_play ของพ่อมดขาว (ถ้ามี)
           const rabbit = window.GS.me.graveyard?.find(c => c.id === 'a_rabbit');
           if(rabbit){
             window.GS.me.graveyard.splice(window.GS.me.graveyard.indexOf(rabbit), 1);
