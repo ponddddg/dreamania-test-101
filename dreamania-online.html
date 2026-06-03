@@ -101,7 +101,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
 .cart{height:50px;overflow:hidden;background:#6b5535;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;border-radius:0}
 .cart img{width:100%;height:100%;object-fit:cover}
 .cbody{flex:1;padding:2px 4px;overflow:hidden}
-.ceff{font-size:5.4px;color:#5a3a1a;line-height:1.42;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;font-style:italic}
+.ceff{font-size:5.4px;color:#5a3a1a;line-height:1.42;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;font-style:italic;white-space:pre-line}
 .cft{display:flex;justify-content:space-between;align-items:center;padding:2px 4px;background:rgba(44,26,14,.1);flex-shrink:0}
 .stat{display:flex;align-items:center;font-size:10px;font-weight:900;font-family:'Cinzel',serif;padding:1px 4px;border-radius:9px;min-width:22px;justify-content:center}
 .sa{background:rgba(139,26,26,.82);color:#fff}
@@ -526,7 +526,8 @@ let _deckChosen = false;
 window._piggyActive    = false;
 window._piggyDmgTaken  = 0;
 window._piggyLastHp    = undefined; // HP ล่าสุดที่ track เพื่อป้องกันบวกซ้ำ
-let _preserveHand = null; // hand ที่ต้อง preserve หลัง action เช่น taxDraw
+window._taxPending     = 0; // จำนวนใบที่ต้องจั่วเพิ่มตอนเริ่มเทิร์นถัดไป (ภาษี)
+let _preserveHand = null;
 
 // ====== ฟังก์ชัน utility ======
 function lobbyStatus(msg, color) {
@@ -717,12 +718,6 @@ function _handleRoom(room) {
     // piggy tracking ย้ายไปที่ _listenActions ตอน direct attack แล้ว
     if(isOurTurn) window._piggyLastHp = undefined;
 
-    // ถ้ามี hand ที่ต้อง preserve (เช่น taxDraw จั่วมาแล้วแต่ GS จากฝั่งตรงข้ามยังเป็นเก่า)
-    if(_preserveHand && _preserveHand.length > window.GS.me.hand.length){
-      window.GS.me.hand = _preserveHand;
-    }
-    _preserveHand = null;
-
     const newTurnNum = room.turnNum || 1;
     const turnChanged = newTurnNum !== window.turnNum;
     window.turnNum = newTurnNum;
@@ -735,26 +730,36 @@ function _handleRoom(room) {
       window.attackers = [];
     }
 
+
     if (window.isMyTurn) {
       document.getElementById('batk').disabled = false;
       document.getElementById('bend').disabled = false;
-      // piggy bonus draw
-      if(window._piggyActive && window._piggyDmgTaken > 0){
-        const bonus = window._piggyDmgTaken;
-        window._piggyActive = false;
-        window._piggyDmgTaken = 0;
-        // จั่วการ์ดเข้า GS ก่อน
-        for(let i = 0; i < bonus; i++){
-          if(window.GS.me.deck.length > 0) window.GS.me.hand.push(window.GS.me.deck.shift());
+      if(turnChanged){
+        // tax bonus draw
+        if(window._taxPending > 0){
+          const taxBonus = window._taxPending;
+          window._taxPending = 0;
+          window.drawCard?.('me', taxBonus, true);
+          window.log?.(`📖 ภาษี: จั่วเพิ่ม ${taxBonus} ใบ!`, 'lh');
         }
-        window.log?.(`🐷 ดอกเบี้ยทบต้น: จั่วเพิ่ม ${bonus} ใบ!`, 'lh');
-        // push GS ที่มีการ์ดใหม่ขึ้น Firebase ทันที เพื่อไม่ให้ sync ครั้งหน้าทับ
-        update(_roomRef, { GS: window.GS, currentTurn: _myRole });
+        // piggy bonus draw
+        if(window._piggyActive && window._piggyDmgTaken > 0){
+          const bonus = window._piggyDmgTaken;
+          window._piggyActive = false;
+          window._piggyDmgTaken = 0;
+          // จั่วการ์ดเข้า GS ก่อน
+          for(let i = 0; i < bonus; i++){
+            if(window.GS.me.deck.length > 0) window.GS.me.hand.push(window.GS.me.deck.shift());
+          }
+          window.log?.(`🐷 ดอกเบี้ยทบต้น: จั่วเพิ่ม ${bonus} ใบ!`, 'lh');
+          // push GS ที่มีการ์ดใหม่ขึ้น Firebase ทันที เพื่อไม่ให้ sync ครั้งหน้าทับ
+          update(_roomRef, { GS: window.GS, currentTurn: _myRole });
+        }
+        window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
+        window.log('─── เทิร์น ' + window.turnNum + ' เริ่ม ───', 'li');
+        // popup แจ้งเทิร์น
+        _showTurnToast();
       }
-      window.ss('เทิร์นของคุณ — วางการ์ดหรือโจมตี');
-      window.log('─── เทิร์น ' + window.turnNum + ' เริ่ม ───', 'li');
-      // popup แจ้งเทิร์น
-      _showTurnToast();
     } else {
       document.getElementById('batk').disabled = true;
       document.getElementById('bend').disabled = true;
@@ -1004,6 +1009,14 @@ function _listenActions() {
         if (statHp)  statHp.textContent  = '♥' + a.newHp;
         if (effEl)   effEl.textContent   = a.newEff || '';
         if (cartEl && window.imgTag) cartEl.innerHTML = window.imgTag(a.newDn, a.newImg, 50);
+        // เพิ่ม badge ✨ ถ้ายังไม่มี
+        if(a.isCopy && !el.querySelector('.copy-badge')){
+          const b = document.createElement('div');
+          b.className='copy-badge';
+          b.style.cssText='position:absolute;top:2px;right:2px;font-size:10px;line-height:1;background:rgba(80,0,80,.7);border-radius:3px;padding:1px 2px';
+          b.title='ซัคคิวบัสจอมจำแลง'; b.textContent='✨';
+          el.appendChild(b);
+        }
         // flash effect แสดงว่าการ์ดเปลี่ยนร่าง
         el.style.outline = '2px solid rgba(180,100,255,.9)';
         el.style.transition = 'outline .6s';
@@ -1022,11 +1035,8 @@ function _listenActions() {
         }
       }
     } else if (a.type === 'taxDraw') {
-      window.log?.(`📖 ภาษี: ${a.targetName} ตาย → จั่ว 1 ใบ!`, 'lh');
-      window.drawCard?.('me', 1, true);
-      // เก็บ hand ไว้ ป้องกัน _handleRoom จาก GS เก่าของคู่แข่ง overwrite
-      _preserveHand = JSON.parse(JSON.stringify(window.GS?.me?.hand || []));
-      window.renderAll?.();
+      window.log?.(`📖 ภาษี: ${a.targetName} ตาย → จั่วเพิ่ม 1 ใบตอนเริ่มเทิร์นถัดไป!`, 'lh');
+      window._taxPending = (window._taxPending || 0) + 1;
     } else if (a.type === 'wizSummon') {
       window.log?.(`🧙‍♀️ [คู่แข่ง] ${a.cardName} ลงสนามจากมือ! ${a.forceEndTurn ? '— บังคับจบเทิร์น!' : ''}`, 'lh');
       if (a.forceEndTurn && window.isMyTurn) {
@@ -1191,6 +1201,7 @@ window.addEventListener('load', () => {
       document.getElementById('bcan').style.display = 'none';
 
       const nextTurn = _myRole === 'player1' ? 'player2' : 'player1';
+
       const swapped = {
         me:    JSON.parse(JSON.stringify(window.GS.enemy)),
         enemy: JSON.parse(JSON.stringify(window.GS.me))
@@ -1343,10 +1354,10 @@ const DB = {
     {id:'s_sword',   name:'ดาบต้องสาปกระหายสงคราม',  t:'item',  atk:0,hp:0,sh:false, img:'sword_curse', eff:'ยูนิทผู้สวมใส่โจมตีได้ 2 ครั้งต่อเทิร์น (ตีเป้าเดียว 2 ครั้ง = ดาเมจ×2)', ieff:'sword_curse'},
   ],
   3: [
-    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม ถ้าไม่ใช่ส่งสุสาน', sp_play:'summon_top'},
-    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม', sp_play:'summon_top'},
-    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม', sp_play:'summon_top'},
-    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม', sp_play:'summon_top'},
+    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม ถ้าไม่ใช่ส่งสุสาน\n📌 กระต่ายที่ขึ้นจากสุสานไม่นับเป็น 1 ใน 5 ยูนิทบนสนาม', sp_play:'summon_top'},
+    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม\n📌 กระต่ายที่ขึ้นจากสุสานไม่นับเป็น 1 ใน 5 ยูนิทบนสนาม', sp_play:'summon_top'},
+    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม\n📌 กระต่ายที่ขึ้นจากสุสานไม่นับเป็น 1 ใน 5 ยูนิทบนสนาม', sp_play:'summon_top'},
+    {id:'a_rabbit',  name:'กระต่ายนำโชค',               t:'unit',  atk:1,hp:1,sh:false, img:'rabbit',  eff:'ลงสนาม → เปิดการ์ดบนสุด: ถ้าเป็นยูนิทเรียกลงสนาม\n📌 กระต่ายที่ขึ้นจากสุสานไม่นับเป็น 1 ใน 5 ยูนิทบนสนาม', sp_play:'summon_top'},
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
     {id:'a_succubus',name:'ซัคคิวบัสจอมจำแลง',           t:'unit',  atk:3,hp:3,sh:false, img:'succubus',eff:'ลงสนาม → เลือกยูนิทในสนาม (ฝ่ายใดก็ได้) เพื่อคัดลอกชื่อ+สกิล+สถานะ', sp_play:'copy'},
@@ -1504,6 +1515,8 @@ function buildMyCard(card,ctx){
     <div class="cbody"><div class="ceff">${card.eff||''}</div></div>
     <div class="cft">${stats}</div>
     ${card.sh?'<div class="sbadge">🛡️</div>':''}
+    ${card.ignoreLimit?'<div style="position:absolute;top:2px;right:2px;font-size:11px;line-height:1">💀</div>':''}
+    ${card.isCopy?'<div style="position:absolute;top:2px;right:2px;font-size:10px;line-height:1;background:rgba(80,0,80,.7);border-radius:3px;padding:1px 2px" title="ซัคคิวบัสจอมจำแลง">✨</div>':''}
     ${card.counterStance?'<div style="position:absolute;top:2px;left:2px;font-size:9px;background:rgba(232,120,80,.85);color:#fff;padding:1px 3px;border-radius:3px;font-family:Cinzel,serif">🔄โต้</div>':''}
   `;
 
@@ -1546,6 +1559,8 @@ function buildECard(card){
     <div class="cbody"><div class="ceff" style="color:rgba(244,232,193,.55)">${card.eff||''}</div></div>
     <div class="cft" style="background:rgba(0,0,0,.3)"><span class="stat sa">⚔${card.cAtk}</span><span class="stat sh">♥${card.cHp}</span></div>
     ${card.sh?'<div class="sbadge">🛡️</div>':''}
+    ${card.ignoreLimit?'<div style="position:absolute;top:2px;right:2px;font-size:11px;line-height:1">💀</div>':''}
+    ${card.isCopy?'<div style="position:absolute;top:2px;right:2px;font-size:10px;line-height:1;background:rgba(80,0,80,.7);border-radius:3px;padding:1px 2px" title="ซัคคิวบัสจอมจำแลง">✨</div>':''}
     ${card.items&&card.items.length?`<div class="istrip">${card.items.map(i=>`<span class="ibadge" title="${i.name}">🔧</span>`).join('')}</div>`:''}
     ${card.tempBuff>0?`<div class="buff-badge">+${card.tempBuff}</div>`:''}
     ${card.hasSwordCurse?'<div class="buff-badge" style="background:#7a1a1a">⚔×2</div>':''}
@@ -1662,7 +1677,7 @@ function showDet(card,ctx){
   st.innerHTML=card.t==='unit'
     ?`<span class="stat sa" style="font-size:13px">⚔ ${card.cAtk}</span><span class="stat sh" style="font-size:13px">♥ ${card.cHp}</span>${card.sh?'<span style="font-size:17px">🛡️</span>':''}`
     :'';
-  document.getElementById('dpeff').textContent=card.eff||'ไม่มีเอฟเฟกต์พิเศษ';
+  document.getElementById('dpeff').textContent = card.eff||'ไม่มีเอฟเฟกต์พิเศษ';
   // Show equipped items
   const eqDiv=document.getElementById('dpequip');
   if(card.items&&card.items.length){
@@ -1873,11 +1888,14 @@ function onPlay(card,w){
         p.deck.shift(); freshToField(top, p.field);
         log(`🐰 กระต่ายนำโชค: เรียก ${top.name} ลงสนาม!`,'lh');
         onPlay(top, w);
+        // ถ้าการ์ดที่ถูกเรียกมีเอฟเฟกต์รอ user input (เช่น copy) อย่า pushGS ก่อน
+        // doCopy จะ pushGS เองหลัง user เลือกเสร็จ
+        if(top.sp_play !== 'copy') window._pushGS?.();
       } else {
         p.deck.shift(); p.graveyard.push(top);
         log(`🐰 กระต่ายนำโชค: ${top.name}→สุสาน`,'li');
+        window._pushGS?.();
       }
-      window._pushGS?.();
     }
     return;
   }
@@ -1888,6 +1906,7 @@ function onPlay(card,w){
       p.deck.shift(); freshToField(top, p.field);
       log(`✨ ${card.name}: เรียก ${top.name} ลงสนาม!`,'lh');
       onPlay(top, w);
+      if(top.sp_play !== 'copy') window._pushGS?.();
     }else{p.deck.shift();p.graveyard.push(top);log(`${card.name}: ${top.name}→สุสาน`,'li');}
   }
 
@@ -1904,12 +1923,12 @@ function onPlay(card,w){
         target.hp=src.hp; target.atk=src.atk; target.sh=src.sh; target.taunt=src.taunt;
         target.direct=src.direct; target.death=src.death; target.bonusDmg=src.bonusDmg;
         target.scaling=src.scaling; target.img=src.img; target.dn=src.dn;
-        target.sp_play=null;
+        target.sp_play=null; target.isCopy=true;
         log(`✨ ซัคคิวบัสจอมจำแลง คัดลอก ${src.name} (⚔${src.cAtk}/♥${src.cHp})!`,'lh');
         window._pushAction?.({
           type:'succubus', cardUid: target.uid,
           newName: target.name, newAtk: target.cAtk, newHp: target.cHp,
-          newEff: target.eff, newImg: target.img, newDn: target.dn, newSh: target.sh
+          newEff: target.eff, newImg: target.img, newDn: target.dn, newSh: target.sh, isCopy: true
         });
         commitActionCard();
         window._pushGS?.(); renderAll();
@@ -1922,8 +1941,8 @@ function onPlay(card,w){
           allUnits.map(c=>({label:`${opp.field.includes(c)?'[ศัตรู] ':'[เรา] '}${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})), doCopy);
       }
     };
-    // delay เล็กน้อยให้ field settle ก่อน (กรณีถูกเรียกจาก merlin/fetch)
-    setTimeout(doShowCopy, 80);
+    // delay ให้ field settle ก่อน โดยเฉพาะกรณีถูกเรียกจาก rabbit/wizard
+    setTimeout(doShowCopy, 200);
   }
 
   if(card.scaling) card.cAtk=1+p.field.filter(c=>c.t==='unit').length;
@@ -2679,9 +2698,14 @@ function resolvePostAtk(attackerCards){
           unitOpts.map(x=>({label:`${x.name} ⚔${x.cAtk}/♥${x.cHp}`,key:x.uid})),
           uid=>{
             const chosen=top3.find(x=>x.uid===uid);
-            if(chosen){freshToField(chosen,GS.me.field);log(`🪄 เมอร์ลิน: ลง ${chosen.name}!`,'lh');onPlay(chosen,'me');const rest=top3.filter(x=>x.uid!==uid);rest.forEach(x=>GS.me.deck.push(x));}
-            else top3.forEach(x=>GS.me.deck.push(x));
-            shuffle(GS.me.deck);window._pushGS?.();renderAll();
+            if(chosen){freshToField(chosen,GS.me.field);log(`🪄 เมอร์ลิน: ลง ${chosen.name}!`,'lh');onPlay(chosen,'me');const rest=top3.filter(x=>x.uid!==uid);rest.forEach(x=>GS.me.deck.push(x));
+              // succubus จะ pushGS เองหลัง copy เสร็จ
+              if(chosen.sp_play !== 'copy'){ shuffle(GS.me.deck);window._pushGS?.();renderAll(); }
+              else shuffle(GS.me.deck);
+            } else {
+              top3.forEach(x=>GS.me.deck.push(x));
+              shuffle(GS.me.deck);window._pushGS?.();renderAll();
+            }
           });
       } else {
         top3.forEach(x=>GS.me.deck.splice(0,0,x));
