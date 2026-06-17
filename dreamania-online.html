@@ -318,6 +318,8 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
 </style>
 </head>
 <body>
+<button onclick="toggleBGM()" id="bgm-btn" style="position:fixed;top:12px;right:104px;z-index:9999;background:rgba(201,162,39,.15);border:1px solid rgba(201,162,39,.4);color:#f4c842;border-radius:6px;padding:5px 10px;font-size:13px;cursor:pointer">🎵</button>
+<button onclick="toggleSfx()" id="sfx-btn" style="position:fixed;top:12px;right:58px;z-index:9999;background:rgba(201,162,39,.15);border:1px solid rgba(201,162,39,.4);color:#f4c842;border-radius:6px;padding:5px 10px;font-size:13px;cursor:pointer">🔊</button>
 <button id="lang-btn-global" onclick="toggleLang()" style="position:fixed;top:12px;right:12px;z-index:9999;background:rgba(201,162,39,.15);border:1px solid rgba(201,162,39,.4);color:#f4c842;border-radius:6px;padding:5px 13px;font-size:11px;cursor:pointer;font-family:'Cinzel',serif">🌐 TH</button>
 
 <!-- TITLE -->
@@ -346,7 +348,7 @@ body{font-family:'Sarabun',sans-serif;background:var(--bg);color:var(--parch);mi
     </div>
     <!-- Online mode -->
     <div class="lobby-section" id="tab-online">
-      <button class="btn btn-g" id="btn-findmatch" onclick="findMatch()" style="margin-bottom:6px;background:linear-gradient(135deg,rgba(201,162,39,.3),rgba(80,40,120,.3));border-color:rgba(201,162,39,.8)">🔍 Find Match</button>
+      <button class="btn btn-g" id="btn-findmatch" onclick="findMatch()" style="margin-bottom:6px;background:linear-gradient(135deg,rgba(201,162,39,.3),rgba(80,40,120,.3));border-color:rgba(201,162,39,.8);color:#fff">🔍 Find Match</button>
       <div class="divhr">or</div>
       <button class="btn btn-g" onclick="createRoom()" style="margin-bottom:6px;font-size:12px">✦ Create Private Room</button>
       <div class="igrp">
@@ -860,6 +862,7 @@ function _handleRoom(room) {
         window.log('─── Turn ' + window.turnNum + ' starts ───', 'li');
         // popup แจ้งเทิร์น
         _showTurnToast();
+        _sfx('yourturn');
         // เริ่ม turn timer
         window.startTurnTimer?.();
       }
@@ -972,10 +975,10 @@ function _doStartGame(room, firstTurn) {
     if(iGoFirst){
       window.ss('Your turn — play a card or attack');
       window.log('🎮 ' + p1.name + ' vs ' + p2.name + ' — Game Start!', 'lh');
+      window.startTurnTimer?.();
     } else {
       window.ss('Waiting for ' + (firstTurn==='player1'?p1:p2).name + ' to play...');
     }
-
     update(_roomRef, {
       GS: window.GS,
       currentTurn: firstTurn,
@@ -1294,6 +1297,7 @@ window.addEventListener('load', () => {
     if (_roomId) {
       if (!window.isMyTurn) return;
       window.clearTurnTimer?.();
+      _sfx('endturn');
       window.log('─── End Turn ' + window.turnNum + ' ───', 'li');
 
       window.GS.me.field.forEach(c => {
@@ -1498,37 +1502,37 @@ const DB = {
     {id:'a_merlin',  name:'Staff of Merlin',            t:'item',  atk:0,hp:0,sh:false, img:'merlin',  eff:'After equipped unit attacks: reveal top 3 cards, summon 1 to field, return the rest under deck and shuffle', ieff:'merlin'},
     {id:'a_merlin',  name:'Staff of Merlin',            t:'item',  atk:0,hp:0,sh:false, img:'merlin',  eff:'After equipped unit attacks: reveal top 3 cards, summon 1 to field, return the rest under deck and shuffle', ieff:'merlin'},
     {id:'a_merlin',  name:'Staff of Merlin',            t:'item',  atk:0,hp:0,sh:false, img:'merlin',  eff:'After equipped unit attacks: reveal top 3 cards, summon 1 to field, return the rest under deck and shuffle', ieff:'merlin'},
-    {id:'a_excal',   name:'เอกซ์คาลิเบอร์',             t:'item',  atk:0,hp:0,sh:false, img:'excalibur',eff:'ยูนิทผู้สวมใส่: ATK+2', ieff:'buff_atk2'},
-    {id:'a_shield2', name:'โล่แห่งศรัทธา',              t:'item',  atk:0,hp:0,sh:false, img:'shield_a',eff:'Equipped unit: HP+2', ieff:'buff_hp2'},
+    {id:'a_excal',   name:'Excalibur',             t:'item',  atk:0,hp:0,sh:false, img:'excalibur',eff:'Equipped unit: ATK+2', ieff:'buff_atk2'},
+    {id:'a_shield2', name:'Shield of Faith',              t:'item',  atk:0,hp:0,sh:false, img:'shield_a',eff:'Equipped unit: HP+2', ieff:'buff_hp2'},
   ],
   4: [
-    {id:'m_jnr',     name:'ลูกน้องตัวตลก ไซน์',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'ถ้าหัวหน้าอยู่ในสนาม: ยูนิทนี้ถูกattacksไม่ได้ ต้องกำจัดหัวหน้าก่อน'},
-    {id:'m_jnr',     name:'ลูกน้องตัวตลก ไซน์',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'ถ้าหัวหน้าอยู่ในสนาม: ยูนิทนี้ถูกattacksไม่ได้ ต้องกำจัดหัวหน้าก่อน'},
-    {id:'m_jnr',     name:'ลูกน้องตัวตลก ไซน์',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'ถ้าหัวหน้าอยู่ในสนาม: ยูนิทนี้ถูกattacksไม่ได้ ต้องกำจัดหัวหน้าก่อน'},
-    {id:'m_jnr',     name:'ลูกน้องตัวตลก ไซน์',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'ถ้าหัวหน้าอยู่ในสนาม: ยูนิทนี้ถูกattacksไม่ได้ ต้องกำจัดหัวหน้าก่อน'},
-    {id:'m_boss',    name:'หัวหน้าตัวตลก เปียโร้',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'attacksยูนิทพร้อมลูกน้อง → ฝ่ายตรงข้ามเลือกทิ้งการ์ดมือ 1 ใบ (ถ้ามี)'},
-    {id:'m_boss',    name:'หัวหน้าตัวตลก เปียโร้',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'attacksยูนิทพร้อมลูกน้อง → ฝ่ายตรงข้ามเลือกทิ้งการ์ดมือ 1 ใบ (ถ้ามี)'},
-    {id:'m_boss',    name:'หัวหน้าตัวตลก เปียโร้',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'attacksยูนิทพร้อมลูกน้อง → ฝ่ายตรงข้ามเลือกทิ้งการ์ดมือ 1 ใบ (ถ้ามี)'},
-    {id:'m_boss',    name:'หัวหน้าตัวตลก เปียโร้',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'attacksยูนิทพร้อมลูกน้อง → ฝ่ายตรงข้ามเลือกทิ้งการ์ดมือ 1 ใบ (ถ้ามี)'},
+    {id:'m_jnr',     name:'Xine the Jester Minion',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'If the Jester Boss is on field: this unit cannot be attacked. Boss must be destroyed first'},
+    {id:'m_jnr',     name:'Xine the Jester Minion',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'If the Jester Boss is on field: this unit cannot be attacked. Boss must be destroyed first'},
+    {id:'m_jnr',     name:'Xine the Jester Minion',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'If the Jester Boss is on field: this unit cannot be attacked. Boss must be destroyed first'},
+    {id:'m_jnr',     name:'Xine the Jester Minion',                     t:'unit',  atk:2,hp:2,sh:false, img:'jnr',           eff:'If the Jester Boss is on field: this unit cannot be attacked. Boss must be destroyed first'},
+    {id:'m_boss',    name:'Pierrot the Jester Boss',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'Attacks while a Minion is on field → opponent chooses 1 card from hand to discard (if any)'},
+    {id:'m_boss',    name:'Pierrot the Jester Boss',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'Attacks while a Minion is on field → opponent chooses 1 card from hand to discard (if any)'},
+    {id:'m_boss',    name:'Pierrot the Jester Boss',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'Attacks while a Minion is on field → opponent chooses 1 card from hand to discard (if any)'},
+    {id:'m_boss',    name:'Pierrot the Jester Boss',                   t:'unit',  atk:2,hp:5,sh:true,  img:'boss',          eff:'Attacks while a Minion is on field → opponent chooses 1 card from hand to discard (if any)'},
     {id:'m_pet',     name:'Pond the Circus Pet',                t:'unit',  atk:3,hp:3,sh:false, img:'pet',           eff:'Attacks while Pierrot the Jester Boss or Xine the Jester Minion is on field → draw 1 card'},
     {id:'m_pet',     name:'Pond the Circus Pet',                t:'unit',  atk:3,hp:3,sh:false, img:'pet',           eff:'Attacks while Pierrot the Jester Boss or Xine the Jester Minion is on field → draw 1 card'},
-    {id:'m_perf',    name:'ผู้เปิดม่าน ไพรด์',                      t:'unit',  atk:3,hp:4,sh:false, img:'performer',     eff:''},
-    {id:'m_perf',    name:'ผู้เปิดม่าน ไพรด์',                      t:'unit',  atk:3,hp:4,sh:false, img:'performer',     eff:''},
-    {id:'m_director',name:'ตัวตลกผู้อยู่เบื้องหลังการแสดง กรีด',    t:'unit',  atk:5,hp:7,sh:true,  img:'clown_director',eff:'เมื่อยูนิทนี้ลงสุสาน: ฝ่ายตรงข้ามทิ้งการ์ดมือ 2 ใบ', death_eff:'opp_discard2'},
-    {id:'m_endless', name:'การแสดงที่ไม่สิ้นสุด',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'นำ "ลูกน้องตัวตลก ไซน์" หรือ "หัวหน้าตัวตลก เปียโร้" จากสุสานขึ้นมือ', sp:'circus_srch'},
-    {id:'m_endless', name:'การแสดงที่ไม่สิ้นสุด',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'นำ "ลูกน้องตัวตลก ไซน์" หรือ "หัวหน้าตัวตลก เปียโร้" จากสุสานขึ้นมือ', sp:'circus_srch'},
-    {id:'m_endless', name:'การแสดงที่ไม่สิ้นสุด',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'นำ "ลูกน้องตัวตลก ไซน์" หรือ "หัวหน้าตัวตลก เปียโร้" จากสุสานขึ้นมือ', sp:'circus_srch'},
-    {id:'m_trick',   name:'วิถีของตัวตลก',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'ส่งยูนิท 1 ใบ (ฝ่ายใดก็ได้) กลับขึ้นมือเจ้าของ', sp:'bounce'},
-    {id:'m_trick',   name:'วิถีของตัวตลก',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'ส่งยูนิท 1 ใบ (ฝ่ายใดก็ได้) กลับขึ้นมือเจ้าของ', sp:'bounce'},
-    {id:'m_trick',   name:'วิถีของตัวตลก',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'ส่งยูนิท 1 ใบ (ฝ่ายใดก็ได้) กลับขึ้นมือเจ้าของ', sp:'bounce'},
-    {id:'m_curtain', name:'การคัดสรรของโรงละคร',                     t:'action',atk:0,hp:0,sh:false, img:'curtain',       eff:'ฝ่ายตรงข้ามส่งการ์ดบนสุดกองการ์ด 1 ใบลงสุสาน', sp:'mill'},
-    {id:'m_curtain', name:'การคัดสรรของโรงละคร',                     t:'action',atk:0,hp:0,sh:false, img:'curtain',       eff:'ฝ่ายตรงข้ามส่งการ์ดบนสุดกองการ์ด 1 ใบลงสุสาน', sp:'mill'},
-    {id:'m_rotate',  name:'การแสดงอันหลอกลวง',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'เลือกยูนิท 1 ใบจากสุสานกลับเข้ากอง จากนั้นเลือกยูนิทใดก็ได้ในกองลงสนามทันที', sp:'rotate'},
-    {id:'m_rotate',  name:'การแสดงอันหลอกลวง',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'เลือกยูนิท 1 ใบจากสุสานกลับเข้ากอง จากนั้นเลือกยูนิทใดก็ได้ในกองลงสนามทันที', sp:'rotate'},
-    {id:'m_rotate',  name:'การแสดงอันหลอกลวง',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'เลือกยูนิท 1 ใบจากสุสานกลับเข้ากอง จากนั้นเลือกยูนิทใดก็ได้ในกองลงสนามทันที', sp:'rotate'},
-    {id:'m_matr',    name:'มาโตรชกาแห่งการโกหก',                    t:'item',  atk:0,hp:0,sh:false, img:'matryoshka',    eff:'(สวมกับหัวหน้าตัวตลก เปียโร้ เท่านั้น) ATK+2 เมื่อลูกน้องลงสุสาน: ฝ่ายที่attacksส่งการ์ดบนสุดลงสุสาน', ieff:'matr'},
-    {id:'m_puppet',  name:'ของเล่นต้องคำสาป',                       t:'item',  atk:0,hp:0,sh:false, img:'puppet_toy',    eff:'(สวมกับลูกน้องตัวตลก ไซน์ เท่านั้น) เมื่อลูกน้องจะลงสุสาน: การ์ดนี้ลงสุสานแทน ปกป้อง 1 ครั้ง', ieff:'puppet'},
-    {id:'m_puppet',  name:'ของเล่นต้องคำสาป',                       t:'item',  atk:0,hp:0,sh:false, img:'puppet_toy',    eff:'(สวมกับลูกน้องตัวตลก ไซน์ เท่านั้น) เมื่อลูกน้องจะลงสุสาน: การ์ดนี้ลงสุสานแทน ปกป้อง 1 ครั้ง', ieff:'puppet'},
+    {id:'m_perf',    name:'Pride the Curtain Raiser',                      t:'unit',  atk:3,hp:4,sh:false, img:'performer',     eff:''},
+    {id:'m_perf',    name:'Pride the Curtain Raiser',                      t:'unit',  atk:3,hp:4,sh:false, img:'performer',     eff:''},
+    {id:'m_director',name:'Greed the Backstage Clown',    t:'unit',  atk:5,hp:7,sh:true,  img:'clown_director',eff:'When this unit is destroyed: opponent discards 2 cards from hand', death_eff:'opp_discard2'},
+    {id:'m_endless', name:'The Show Never Ends',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'Retrieve "Xine the Jester Minion" or "Pierrot the Jester Boss" from graveyard to hand', sp:'circus_srch'},
+    {id:'m_endless', name:'The Show Never Ends',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'Retrieve "Xine the Jester Minion" or "Pierrot the Jester Boss" from graveyard to hand', sp:'circus_srch'},
+    {id:'m_endless', name:'The Show Never Ends',                    t:'action',atk:0,hp:0,sh:false, img:'endless',       eff:'Retrieve "Xine the Jester Minion" or "Pierrot the Jester Boss" from graveyard to hand', sp:'circus_srch'},
+    {id:'m_trick',   name:'Way of the Jester',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'Return 1 unit (either side) to its owner\'s hand', sp:'bounce'},
+    {id:'m_trick',   name:'Way of the Jester',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'Return 1 unit (either side) to its owner\'s hand', sp:'bounce'},
+    {id:'m_trick',   name:'Way of the Jester',                           t:'action',atk:0,hp:0,sh:false, img:'trick',         eff:'Return 1 unit (either side) to its owner\'s hand', sp:'bounce'},
+    {id:'m_curtain', name:'Theater\'s Selection',                     t:'action',atk:0,hp:0,sh:false, img:'curtain',       eff:'Force opponent to mill their top deck card to graveyard', sp:'mill'},
+    {id:'m_curtain', name:'Theater\'s Selection',                     t:'action',atk:0,hp:0,sh:false, img:'curtain',       eff:'Force opponent to mill their top deck card to graveyard', sp:'mill'},
+    {id:'m_rotate',  name:'Illusory Performance',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'Return 1 unit from graveyard to deck, then summon any unit from deck to field immediately', sp:'rotate'},
+    {id:'m_rotate',  name:'Illusory Performance',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'Return 1 unit from graveyard to deck, then summon any unit from deck to field immediately', sp:'rotate'},
+    {id:'m_rotate',  name:'Illusory Performance',                      t:'action',atk:0,hp:0,sh:false, img:'circus_tent',   eff:'Return 1 unit from graveyard to deck, then summon any unit from deck to field immediately', sp:'rotate'},
+    {id:'m_matr',    name:'Matryoshka of Lies',                    t:'item',  atk:0,hp:0,sh:false, img:'matryoshka',    eff:'(Equip on Pierrot the Jester Boss only) ATK+2. When the Minion is destroyed: the attacker mills their top deck card', ieff:'matr'},
+    {id:'m_puppet',  name:'Cursed Toy',                       t:'item',  atk:0,hp:0,sh:false, img:'puppet_toy',    eff:'(Equip on Xine the Jester Minion only) When the Minion would be destroyed: this card is destroyed instead, protecting once', ieff:'puppet'},
+    {id:'m_puppet',  name:'Cursed Toy',                       t:'item',  atk:0,hp:0,sh:false, img:'puppet_toy',    eff:'(Equip on Xine the Jester Minion only) When the Minion would be destroyed: this card is destroyed instead, protecting once', ieff:'puppet'},
   ]
 };
 
@@ -1537,6 +1541,247 @@ const DB = {
 // ============================================================
 var GS=null, myDN=1, myName='Player';
 var isMyTurn=false, atkMode=false, eqMode=false, attackers=[], turnNum=1;
+
+
+
+
+// ====== SFX (Web Audio API) ======
+const _sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+let _sfxMuted = false;
+
+function _sfx(type){
+  if(_sfxMuted) return;
+  try{
+    const ctx = _sfxCtx;
+    if(ctx.state === 'suspended') ctx.resume();
+    const g = ctx.createGain();
+    g.connect(ctx.destination);
+
+    switch(type){
+      case 'play': { // วางการ์ดลงสนาม — whoosh + thud
+        const o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.setValueAtTime(320, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(80, ctx.currentTime+0.18);
+        g.gain.setValueAtTime(0.25, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.22);
+        o.connect(g); o.start(); o.stop(ctx.currentTime+0.22);
+        break; }
+      case 'atk': { // โจมตี — sharp hit
+        const buf = ctx.createBuffer(1, ctx.sampleRate*0.15, ctx.sampleRate);
+        const d = buf.getChannelData(0);
+        for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2);
+        const src = ctx.createBufferSource(); src.buffer=buf;
+        const f = ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=800;
+        src.connect(f); f.connect(g);
+        g.gain.setValueAtTime(0.4, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.15);
+        src.start(); src.stop(ctx.currentTime+0.15);
+        break; }
+      case 'die': { // การ์ดตาย — low thud + fade
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(120, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(30, ctx.currentTime+0.3);
+        g.gain.setValueAtTime(0.3, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.3);
+        o.connect(g); o.start(); o.stop(ctx.currentTime+0.3);
+        break; }
+      case 'draw': { // จั่วการ์ด — light flick
+        const o = ctx.createOscillator();
+        o.type = 'triangle'; o.frequency.setValueAtTime(600, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(900, ctx.currentTime+0.08);
+        g.gain.setValueAtTime(0.12, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.1);
+        o.connect(g); o.start(); o.stop(ctx.currentTime+0.1);
+        break; }
+      case 'direct': { // ตีตรงออร์บ — heavy boom
+        const o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.setValueAtTime(60, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(25, ctx.currentTime+0.4);
+        g.gain.setValueAtTime(0.5, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.45);
+        o.connect(g); o.start(); o.stop(ctx.currentTime+0.45);
+        // overtone
+        const o2 = ctx.createOscillator();
+        o2.type='sine'; o2.frequency.setValueAtTime(200,ctx.currentTime);
+        o2.frequency.exponentialRampToValueAtTime(50,ctx.currentTime+0.2);
+        const g2=ctx.createGain(); g2.gain.setValueAtTime(0.2,ctx.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.2);
+        o2.connect(g2); g2.connect(ctx.destination); o2.start(); o2.stop(ctx.currentTime+0.2);
+        break; }
+      case 'endturn': { // จบเทิร์น — soft chime
+        [440,550,660].forEach((f,i)=>{
+          const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+          const gi=ctx.createGain();
+          gi.gain.setValueAtTime(0,ctx.currentTime+i*0.1);
+          gi.gain.linearRampToValueAtTime(0.15,ctx.currentTime+i*0.1+0.05);
+          gi.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.1+0.3);
+          o.connect(gi); gi.connect(ctx.destination);
+          o.start(ctx.currentTime+i*0.1); o.stop(ctx.currentTime+i*0.1+0.3);
+        });
+        break; }
+      case 'yourturn': { // เทิร์นคุณ — ascending ding
+        [330,440,550,660].forEach((f,i)=>{
+          const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+          const gi=ctx.createGain();
+          gi.gain.setValueAtTime(0,ctx.currentTime+i*0.08);
+          gi.gain.linearRampToValueAtTime(0.18,ctx.currentTime+i*0.08+0.04);
+          gi.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.08+0.25);
+          o.connect(gi); gi.connect(ctx.destination);
+          o.start(ctx.currentTime+i*0.08); o.stop(ctx.currentTime+i*0.08+0.25);
+        });
+        break; }
+      case 'win': { // ชนะ — fanfare
+        [440,550,660,880].forEach((f,i)=>{
+          const o=ctx.createOscillator(); o.type='triangle'; o.frequency.value=f;
+          const gi=ctx.createGain();
+          gi.gain.setValueAtTime(0,ctx.currentTime+i*0.12);
+          gi.gain.linearRampToValueAtTime(0.2,ctx.currentTime+i*0.12+0.06);
+          gi.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.12+0.5);
+          o.connect(gi); gi.connect(ctx.destination);
+          o.start(ctx.currentTime+i*0.12); o.stop(ctx.currentTime+i*0.12+0.5);
+        });
+        break; }
+      case 'lose': { // แพ้ — descending doom
+        [330,220,165,110].forEach((f,i)=>{
+          const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=f;
+          const gi=ctx.createGain();
+          gi.gain.setValueAtTime(0,ctx.currentTime+i*0.15);
+          gi.gain.linearRampToValueAtTime(0.18,ctx.currentTime+i*0.15+0.05);
+          gi.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.15+0.4);
+          o.connect(gi); gi.connect(ctx.destination);
+          o.start(ctx.currentTime+i*0.15); o.stop(ctx.currentTime+i*0.15+0.4);
+        });
+        break; }
+      case 'timer': { // timer เตือน — tick
+        const o=ctx.createOscillator(); o.type='square'; o.frequency.value=880;
+        g.gain.setValueAtTime(0.08,ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.06);
+        o.connect(g); o.start(); o.stop(ctx.currentTime+0.06);
+        break; }
+    }
+  }catch(e){}
+}
+
+// ปุ่ม mute
+function toggleSfx(){
+  _sfxMuted = !_sfxMuted;
+  const btn = document.getElementById('sfx-btn');
+  if(btn) btn.textContent = _sfxMuted ? '🔇' : '🔊';
+}
+
+
+// ====== BGM (Web Audio API Ambient Drone) ======
+let _bgmNodes = [];
+let _bgmMuted = false;
+let _bgmStarted = false;
+
+function startBGM(){
+  if(_bgmStarted || _bgmMuted) return;
+  _bgmStarted = true;
+  const ctx = _sfxCtx;
+  // resume ก่อนเสมอ แล้วค่อย build nodes
+  const _build = () => {
+  const BPM = 172;
+  const beat = 60 / BPM;
+  const t0 = ctx.currentTime + 0.1;
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0, t0);
+  master.gain.linearRampToValueAtTime(0.55, t0 + 1.5);
+  master.connect(ctx.destination);
+  _bgmNodes.push(master);
+
+  // reverb — hall ขนาดกลาง
+  const rvLen = ctx.sampleRate * 2;
+  const rvBuf = ctx.createBuffer(2, rvLen, ctx.sampleRate);
+  for(let ch=0;ch<2;ch++){
+    const d=rvBuf.getChannelData(ch);
+    for(let i=0;i<rvLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/rvLen,3);
+  }
+  const rv=ctx.createConvolver(); rv.buffer=rvBuf;
+  const rvG=ctx.createGain(); rvG.gain.value=0.28;
+  rv.connect(rvG); rvG.connect(master);
+
+  // helper: bass hit — cello/double bass pluck
+  const playBass=(freq,startT,dur)=>{
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(0.5,startT);
+    g.gain.exponentialRampToValueAtTime(0.001,startT+dur);
+    const f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=600;
+    g.connect(f); f.connect(master);
+    [0,-5].forEach(cents=>{
+      const o=ctx.createOscillator(); o.type='sawtooth'; o.frequency.value=freq; o.detune.value=cents;
+      const og=ctx.createGain(); og.gain.value=0.5;
+      o.connect(og); og.connect(g);
+      o.start(startT); o.stop(startT+dur+0.05);
+    });
+  };
+
+  // helper: snare-like hit
+  const playSnare=(startT)=>{
+    const buf=ctx.createBuffer(1,ctx.sampleRate*0.12,ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,1.5);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const f=ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=3000; f.Q.value=0.5;
+    const g=ctx.createGain(); g.gain.value=0.18;
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(startT); src.stop(startT+0.13);
+  };
+
+  const loopBars = beat * 32;
+
+  // bass pattern: ตีหนัก beat 1 และ 3 ของทุก bar
+  const D2=73.4, A2=110, Fs3=185, E3=164.8;
+  const bassSeq = [D2,D2,A2,A2, D2,D2,Fs3,Fs3, D2,D2,A2,A2, E3,E3,A2,A2,
+                   D2,D2,A2,A2, D2,D2,E3,E3,   D2,D2,A2,A2, D2,D2,D2,D2];
+
+  // schedule หลายรอบล่วงหน้า — เหลือแค่จังหวะ (bass + snare)
+  const scheduleLoop = (offset) => {
+    bassSeq.forEach((freq,i)=>{
+      playBass(freq, t0+offset+i*beat, beat*0.6);
+    });
+    for(let b=1;b<32;b+=2) playSnare(t0+offset+b*beat);
+  };
+
+  // pre-schedule 3 รอบ
+  scheduleLoop(0);
+  scheduleLoop(loopBars);
+  scheduleLoop(loopBars*2);
+
+  // loop ต่อเนื่อง
+  let loopCount = 3;
+  const loopInterval = setInterval(()=>{
+    if(!_bgmStarted){ clearInterval(loopInterval); return; }
+    scheduleLoop(loopBars * loopCount);
+    loopCount++;
+  }, loopBars * 1000);
+
+  _bgmNodes.push({ stop: ()=>clearInterval(loopInterval) });
+  }; // end _build
+  ctx.resume().then(_build);
+}
+
+function stopBGM(){
+  _bgmStarted = false;
+  _bgmNodes.forEach(n=>{ try{ if(n.stop) n.stop(); if(n.disconnect) n.disconnect(); }catch(e){} });
+  _bgmNodes = [];
+}
+
+function toggleBGM(){
+  const btn = document.getElementById('bgm-btn');
+  if(_bgmStarted){
+    // กำลังเล่นอยู่ → หยุด
+    stopBGM();
+    _bgmMuted = true;
+    if(btn){ btn.style.opacity='0.4'; }
+  } else {
+    // หยุดอยู่ → เริ่ม
+    _bgmMuted = false;
+    _sfxCtx.resume().then(()=>startBGM());
+    if(btn){ btn.style.opacity='1'; }
+  }
+}
 
 // ====== TURN TIMER ======
 let _timerInterval = null;
@@ -1564,6 +1809,7 @@ function startTurnTimer(){
       num.style.color = '#ff4444';
       // pulse effect
       num.style.transform = _timerSec % 2 === 0 ? 'scale(1.2)' : 'scale(1)';
+      _sfx('timer');
     } else if(_timerSec <= 20){
       ring.style.stroke = '#ff9944';
       num.style.color = '#ff9944';
@@ -1600,7 +1846,7 @@ function uid(){return Math.random().toString(36).slice(2,10)}
 function mkCard(def,dn){return{...def,uid:uid(),dn,cHp:def.hp||0,cAtk:def.atk||0,exhausted:false,tempBuff:0,items:[]}}
 
 // reset card stats ก่อนลงสนามเสมอ (ป้องกัน HP/ATK ติดลบจากการเคยถูกดาเมจ)
-function freshToField(card, field){
+function freshToField(card, field){ _sfx('play');
   card.cHp = card.hp || 0;
   card.cAtk = card.atk || 0;
   card.exhausted = false;
@@ -1937,7 +2183,7 @@ function applyItemEffect(target,item,who){
 }
 
 // DRAW
-function drawCard(w,n=1,animate=false){
+function drawCard(w,n=1,animate=false){ if(w==='me') _sfx('draw');
   for(let i=0;i<n;i++){
     const p=GS[w];
     if(!p.deck.length){log(`🃏 ${p.name} has run out of cards!`,'la');endGame(w==='me'?'enemy':'me',`${p.name} has run out of cards!`);return;}
@@ -1986,7 +2232,7 @@ function playCard(cuid){
 }
 
 // ฟังก์ชันกลางสำหรับฆ่าการ์ดจาก enemy field — push die action ทุกครั้ง
-function killEnemyCard(target) {
+function killEnemyCard(target) { _sfx('die');
   const idx = GS.enemy.field.indexOf(target);
   if (idx === -1) return;
   // check draw_on_death ก่อน clear items
@@ -2406,7 +2652,7 @@ function doAction(card,w){
     }
 
     case 'mill':{
-      if(opp.deck.length){const m=opp.deck.shift();opp.graveyard.push(m);log(`📚 ${opp.name} lost ${m.name}`,'la');if(!opp.deck.length)setTimeout(()=>endGame(w==='me'?'me':'enemy',`${opp.name} การ์ดหมด!`),400);}
+      if(opp.deck.length){const m=opp.deck.shift();opp.graveyard.push(m);log(`📚 ${opp.name} lost ${m.name}`,'la');if(!opp.deck.length)setTimeout(()=>endGame(w==='me'?'me':'enemy',`${opp.name} ran out of cards!`),400);}
       renderAll();break;
     }
 
@@ -2425,7 +2671,7 @@ function doAction(card,w){
         const best=[...opp.field].sort((a,b)=>b.cAtk-a.cAtk)[0];
         doBounce(best ? best.uid : targets[0].uid);
       } else {
-        showTgt('วิถีของตัวตลก',
+        showTgt('Way of the Jester',
           'คุณเลือกว่าจะให้ยูนิทใบไหนกลับมือเจ้าของ',
           targets.map(c=>({label:`${opp.field.includes(c)?'[ศัตรู] ':'[เรา] '}${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})),
           doBounce);
@@ -2442,7 +2688,7 @@ function doAction(card,w){
         renderAll();
       };
       if(isAI){ doCircus(found[0].uid); }
-      else showTgt('การแสดงที่ไม่สิ้นสุด','เลือกการ์ดที่จะนำขึ้นมือ',
+      else showTgt('The Show Never Ends','Choose a card to add to hand',
         found.map(c=>({label:c.name,key:c.uid})), doCircus);
       break;
     }
@@ -2478,7 +2724,7 @@ function doAction(card,w){
     case 'dragon':{
       if(!p.hand.length){ss('ต้องมีการ์ดในมือเพื่อทิ้ง!');renderAll();break;}
       const units2=p.field.filter(c=>c.t==='unit');
-      if(!units2.length){ss('ต้องมียูนิทในสนาม!');renderAll();break;}
+      if(!units2.length){ss('Need a unit on field!');renderAll();break;}
       if(isAI){
         p.graveyard.push(p.hand.shift());
         const best=[...units2].sort((a,b)=>b.cAtk-a.cAtk)[0];
@@ -2655,11 +2901,11 @@ function doAction(card,w){
           renderAll();
         };
         if(isAI){ doDeploy(deckUnits[0].uid); }
-        else setTimeout(()=>showTgt('การแสดงอันหลอกลวง — เลือกจากกอง','เลือกยูนิทที่จะลงสนามทันที',
+        else setTimeout(()=>showTgt('Illusory Performance — Choose from Deck','Choose a unit to summon immediately',
           deckUnits.map(c=>({label:`${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})), doDeploy), 150);
       };
       if(isAI){ doRotate(gravUnits[0].uid); }
-      else showTgt('การแสดงอันหลอกลวง — เลือกจากสุสาน','เลือกยูนิท 1 ใบจากสุสานกลับเข้ากอง',
+      else showTgt('Illusory Performance — Choose from Graveyard','Choose 1 unit to return to deck',
         gravUnits.map(c=>({label:`${c.name} ⚔${c.cAtk}/♥${c.cHp}`,key:c.uid})), doRotate);
       break;
     }
@@ -2678,12 +2924,12 @@ function doAction(card,w){
 
     case 'counter':{
       const myUnitsC=p.field.filter(c=>c.t==='unit');
-      if(!myUnitsC.length){ss('ต้องมียูนิทในสนาม!');renderAll();break;}
+      if(!myUnitsC.length){ss('Need a unit on field!');renderAll();break;}
       const doCounter=uid=>{
         const t=p.field.find(c=>c.uid===uid);
         if(t){
           t.cHp+=1; t.counterStance=true;
-          t.items.push({name:'Counter',eff:'โต้กลับยูนิทที่attacksครั้งแรก',ieff:'counter'});
+          t.items.push({name:'Counter',eff:'Counter the first unit that attacks',ieff:'counter'});
           log(`🔄 ${t.name}: HP+1 and Counter stance!`,'lh');
         }
         renderAll();
@@ -2725,7 +2971,7 @@ function togAtker(uid){
 
 function totalAtk(){return attackers.reduce((s,u)=>{const c=GS.me.field.find(x=>x.uid===u);return s+(c?c.cAtk+(c.tempBuff||0):0);},0);}
 
-function atkTarget(tuid){
+function atkTarget(tuid){ _sfx('atk');
   if(!attackers.length){ss('เลือกยูนิทattacksก่อน!');return;}
   const target=GS.enemy.field.find(c=>c.uid===tuid);if(!target)return;
   const tnt=GS.enemy.field.find(c=>c.taunt);
@@ -2733,7 +2979,7 @@ function atkTarget(tuid){
   // ลูกน้อง ไซน์: ถูกattacksไม่ได้ถ้าหัวหน้ายังอยู่
   if(target.id==='m_jnr'){
     const bossAlive=GS.enemy.field.find(c=>c.id==='m_boss');
-    if(bossAlive){ss(`⚠️ ต้องกำจัด "หัวหน้าตัวตลก เปียโร้" ก่อน!`);return;}
+    if(bossAlive){ss(`⚠️ Must destroy "Pierrot the Jester Boss" first!`);return;}
   }
 
   const attackerCards=attackers.map(u=>GS.me.field.find(x=>x.uid===u)).filter(Boolean);
@@ -2831,7 +3077,7 @@ function atkTarget(tuid){
           const matrHolder=GS.enemy.field.find(c=>c.id==='m_boss'&&c.items&&c.items.find(it=>it.ieff==='matr'));
           if(matrHolder&&GS.me.deck.length>0){
             const milled=GS.me.deck.shift();GS.me.graveyard.push(milled);
-            log(`🪆 มาโตรชกา: ${milled.name} ลงสุสาน!`,'la');
+            log(`🪆 Matryoshka: ${milled.name} milled to graveyard!`,'la');
           }
         }
 
@@ -2846,7 +3092,7 @@ function atkTarget(tuid){
         if(target.death){
           attackerCards.forEach(kil=>{
             const idx=GS.me.field.indexOf(kil);
-            if(idx!==-1){kil.items=[];GS.me.field.splice(idx,1);GS.me.graveyard.push(kil);log(`💥 ${target.name}: ${kil.name} ตายตาม!`,'la');}
+            if(idx!==-1){kil.items=[];GS.me.field.splice(idx,1);GS.me.graveyard.push(kil);log(`💥 ${target.name}: ${kil.name} dies too!`,'la');}
           });
         }
         resolvePostAtk(attackerCards);
@@ -2865,7 +3111,7 @@ function resolvePostAtk(attackerCards){
   const hasJrOnField=GS.me.field.find(c=>c.id==='m_jnr');
   if(hasBoss&&hasJrOnField&&GS.enemy.hand.length>0){
     GS.enemy.graveyard.push(GS.enemy.hand.shift());
-    log('🎪 หัวหน้า+ลูกน้อง: ศัตรูทิ้งการ์ด 1 ใบ','la');
+    log('🎪 Boss+Minion: opponent discards 1 card','la');
   }
 
   // สัตว์เลี้ยงตัวตลก พอนด์: จั่ว 1 ใบถ้ามีหัวหน้าหรือลูกน้องในสนาม
@@ -2922,7 +3168,7 @@ function resolvePostAtk(attackerCards){
   checkWin();renderAll();
 }
 
-function doDir(){
+function doDir(){ _sfx('direct');
   if(!attackers.length){ss('เลือกยูนิทก่อน!');return;}
 
   // โล่ทอง: ถ้าฝ่ายตรงข้ามมียูนิตที่มีโล่ในสนาม → ตีตรงไม่ได้ (ยกเว้นยูนิตที่มี direct:true)
@@ -2987,7 +3233,7 @@ function doDir(){
   const hasBoss=GS.me.field.find(c=>c.id==='m_boss');
   const hasJr=GS.me.field.find(c=>c.id==='m_jnr');
   if(hasBoss&&hasJr&&attackers.includes(hasBoss.uid)){
-    if(GS.enemy.hand.length){GS.enemy.graveyard.push(GS.enemy.hand.shift());log('🎪 ผลหัวหน้า: ศัตรูทิ้งการ์ด 1 ใบ','la');}
+    if(GS.enemy.hand.length){GS.enemy.graveyard.push(GS.enemy.hand.shift());log('🎪 Boss effect: opponent discards 1 card','la');}
   }
 
   // exhaust / attackCount logic
@@ -3045,6 +3291,191 @@ function endTurn(){
 }
 
 // AI
+
+// ====== MONTE CARLO AI ======
+
+// clone GS แบบ deep copy สำหรับ simulation
+function _cloneGS(gs){
+  return JSON.parse(JSON.stringify(gs));
+}
+
+// ประเมิน state จากมุม AI (enemy)
+function _evalState(gs){
+  const myHp    = gs.enemy.hp;
+  const oppHp   = gs.me.hp;
+  const myField = gs.enemy.field;
+  const oppField= gs.me.field;
+  const myHand  = gs.enemy.hand.length;
+  const myDeck  = gs.enemy.deck.length;
+
+  // HP ต่างกัน — สำคัญที่สุด
+  let score = (myHp - oppHp) * 4;
+
+  // field strength
+  myField.forEach(c=>{
+    score += c.cAtk + c.cHp;
+    if(c.sh) score += 2;
+  });
+  oppField.forEach(c=>{
+    score -= c.cAtk + c.cHp;
+    if(c.sh) score -= 2;
+  });
+
+  // มือและเด็ค
+  score += myHand * 0.5;
+  score += myDeck * 0.2;
+
+  // ชนะ/แพ้ทันที
+  if(oppHp <= 0) score += 1000;
+  if(myHp  <= 0) score -= 1000;
+
+  return score;
+}
+
+// simulate การโจมตีอย่างง่าย (ไม่ผ่าน atkTarget จริงๆ เพื่อความเร็ว)
+function _simAttack(gs){
+  const attField = [...gs.enemy.field.filter(c=>!c.exhausted && !c.summonedThisTurn)];
+  const defField = [...gs.me.field];
+  const defShield = defField.find(c=>c.sh);
+
+  attField.forEach(atk=>{
+    if(atk.exhausted) return;
+    // เลือก target: ตีเป้าที่ฆ่าได้ก่อน หรือตีตรงถ้าไม่มี shield
+    const killable = defField.filter(t=>t.cHp>0 && atk.cAtk>=t.cHp);
+    if(killable.length){
+      const t = killable[0];
+      t.cHp -= atk.cAtk;
+      if(t.cHp<=0) gs.me.field = gs.me.field.filter(x=>x.uid!==t.uid);
+      atk.exhausted = true;
+    } else if(!defShield && !defField.filter(t=>t.cHp>0).length){
+      gs.me.hp = Math.max(0, gs.me.hp - atk.cAtk);
+      atk.exhausted = true;
+    } else if(defField.filter(t=>t.cHp>0).length){
+      const t = defField.filter(t=>t.cHp>0)[0];
+      t.cHp -= atk.cAtk;
+      if(t.cHp<=0) gs.me.field = gs.me.field.filter(x=>x.uid!==t.uid);
+      atk.exhausted = true;
+    } else if(!defShield){
+      gs.me.hp = Math.max(0, gs.me.hp - atk.cAtk);
+      atk.exhausted = true;
+    }
+  });
+  return gs;
+}
+
+// simulate การลงการ์ด unit
+function _simPlayUnits(gs, units){
+  units.forEach(c=>{
+    if(gs.enemy.field.filter(x=>!x.ignoreLimit).length >= 5) return;
+    const idx = gs.enemy.hand.findIndex(x=>x.uid===c.uid);
+    if(idx===-1) return;
+    const card = gs.enemy.hand.splice(idx,1)[0];
+    card.exhausted = false;
+    card.summonedThisTurn = true;
+    card.cHp = card.hp||0;
+    card.cAtk = card.atk||0;
+    gs.enemy.field.push(card);
+  });
+  return gs;
+}
+
+// simulate เทิร์นผู้เล่น (conservative — ผู้เล่น optimal)
+function _simPlayerTurn(gs){
+  // ผู้เล่นโจมตีทุกตัว
+  const attField = [...gs.me.field.filter(c=>!c.exhausted)];
+  const defField = [...gs.enemy.field];
+  const defShield = defField.find(c=>c.sh);
+
+  attField.forEach(atk=>{
+    const killable = defField.filter(t=>t.cHp>0 && atk.cAtk>=t.cHp);
+    if(killable.length){
+      const t = killable.sort((a,b)=>b.cAtk+b.cHp - a.cAtk-a.cHp)[0];
+      t.cHp -= atk.cAtk;
+      if(t.cHp<=0) gs.enemy.field = gs.enemy.field.filter(x=>x.uid!==t.uid);
+    } else if(!defShield){
+      gs.enemy.hp = Math.max(0, gs.enemy.hp - atk.cAtk);
+    } else {
+      const t = defField.filter(t=>t.cHp>0 && t.sh)[0] || defField.filter(t=>t.cHp>0)[0];
+      if(t){ t.cHp -= atk.cAtk; if(t.cHp<=0) gs.enemy.field=gs.enemy.field.filter(x=>x.uid!==t.uid); }
+    }
+  });
+  // ผู้เล่นจั่ว 2 ใบ
+  for(let i=0;i<2;i++) if(gs.me.deck.length) gs.me.hand.push(gs.me.deck.shift());
+  // ผู้เล่นลงการ์ดที่ดีที่สุดในมือ (simulate)
+  const bestUnit = gs.me.hand.filter(c=>c.t==='unit')
+    .sort((a,b)=>(b.cAtk+b.cHp+b.sh*2)-(a.cAtk+a.cHp+a.sh*2))[0];
+  if(bestUnit && gs.me.field.filter(c=>!c.ignoreLimit).length < 5){
+    const idx = gs.me.hand.findIndex(c=>c.uid===bestUnit.uid);
+    if(idx!==-1){
+      const card = gs.me.hand.splice(idx,1)[0];
+      card.cHp=card.hp||0; card.cAtk=card.atk||0;
+      gs.me.field.push(card);
+    }
+  }
+  gs.me.field.forEach(c=>{ c.exhausted=false; });
+  return gs;
+}
+
+// เลือก play action ที่ดีที่สุดด้วย Monte Carlo
+function mcts_chooseMoves(diff){
+  const simCount  = diff==='easy' ? 5  : diff==='med' ? 15 : 30;
+  const depth     = diff==='easy' ? 1  : diff==='med' ? 2  : 3;
+
+  // สร้าง candidate plays: ชุดยูนิทที่จะลง (0-5 combinations)
+  const hand = GS.enemy.hand.filter(c=>c.t==='unit');
+  const maxPlay = Math.min(hand.length, GS.enemy.field.filter(c=>!c.ignoreLimit).length < 5 ? 5-GS.enemy.field.filter(c=>!c.ignoreLimit).length : 0);
+
+  // สร้าง subsets แบบ greedy (ไม่ brute force ทุก subset เพื่อความเร็ว)
+  const candidates = [[]]; // ไม่ลงอะไรเลย
+  if(maxPlay > 0){
+    const sorted = [...hand].sort((a,b)=>(b.cAtk+b.cHp+b.sh*2)-(a.cAtk+a.cHp+a.sh*2));
+    let cum = [];
+    sorted.forEach(c=>{
+      cum = [...cum, c];
+      candidates.push([...cum]);
+    });
+  }
+
+  let bestScore = -Infinity;
+  let bestPlay  = candidates[candidates.length > 1 ? candidates.length-1 : 0];
+
+  for(const play of candidates){
+    let totalScore = 0;
+    for(let sim=0; sim<simCount; sim++){
+      let gs = _cloneGS(GS);
+      // AI จั่ว 2
+      for(let i=0;i<2;i++) if(gs.enemy.deck.length) gs.enemy.hand.push(gs.enemy.deck.shift());
+      // ลง units ที่เลือก
+      const mapped = play.map(c=>gs.enemy.hand.find(x=>x.uid===c.uid)).filter(Boolean);
+      gs = _simPlayUnits(gs, mapped);
+      // โจมตี
+      gs = _simAttack(gs);
+      // simulate ahead
+      for(let d=1; d<depth; d++){
+        gs = _simPlayerTurn(gs);
+        for(let i=0;i<2;i++) if(gs.enemy.deck.length) gs.enemy.hand.push(gs.enemy.deck.shift());
+        // random draw noise
+        if(gs.enemy.hand.length > 0){
+          const ri = Math.floor(Math.random()*gs.enemy.hand.length);
+          const rc = gs.enemy.hand[ri];
+          if(rc && rc.t==='unit' && gs.enemy.field.filter(x=>!x.ignoreLimit).length<5){
+            gs.enemy.hand.splice(ri,1);
+            rc.cHp=rc.hp||0; rc.cAtk=rc.atk||0;
+            gs.enemy.field.push(rc);
+          }
+        }
+        gs = _simAttack(gs);
+      }
+      totalScore += _evalState(gs);
+    }
+    const avg = totalScore / simCount;
+    if(avg > bestScore){ bestScore=avg; bestPlay=play; }
+  }
+
+  return bestPlay; // array ของ card จาก hand ที่ควรลง
+}
+
+
 // ====== AI DIFFICULTY ======
 let _aiDiff = 'med'; // easy | med | hard
 
@@ -3158,86 +3589,252 @@ function aiAtkLogic(diff){
 
   const used = new Set();
   const tnt = GS.me.field.find(c=>c.taunt);
-  const targets = tnt ? [tnt] : aiPickTargets(avail, GS.me.field, diff);
+
+  // MCTS: simulate แต่ละ target แล้วเลือก sequence ที่ดีที่สุด
+  const simCount = diff==='easy' ? 3 : diff==='med' ? 10 : 20;
+
+  // สร้าง candidate attack sequences
+  const rawTargets = tnt ? [tnt] : [...GS.me.field].filter(c=>{
+    if(c.cHp<=0) return false;
+    // ลูกน้องตัวตลก: ถ้าหัวหน้ายังอยู่ ตีไม่ได้
+    if(c.id==='m_jnr' && GS.me.field.find(x=>x.id==='m_boss')) return false;
+    return true;
+  });
+
+  // ประเมิน score ถ้าโจมตีแต่ละ target
+  function evalAttackTarget(t, attackerPool){
+    let total = 0;
+    for(let s=0;s<simCount;s++){
+      const gs = _cloneGS(GS);
+      const ait = gs.enemy.field.filter(c=>attackerPool.some(a=>a.uid===c.uid));
+      const tgt = gs.me.field.find(c=>c.uid===t.uid);
+      if(!tgt) continue;
+      const atk = ait.reduce((sum,c)=>sum+c.cAtk, 0);
+      if(atk >= tgt.cHp){
+        gs.me.field = gs.me.field.filter(c=>c.uid!==tgt.uid);
+        gs.me.graveyard.push(tgt);
+      }
+      total += _evalState(gs);
+    }
+    return total / simCount;
+  }
+
+  function evalDirect(attackerPool){
+    let total = 0;
+    for(let s=0;s<simCount;s++){
+      const gs = _cloneGS(GS);
+      const dmg = attackerPool.reduce((sum,c)=>sum+c.cAtk, 0);
+      gs.me.hp = Math.max(0, gs.me.hp - dmg);
+      total += _evalState(gs);
+    }
+    return total / simCount;
+  }
 
   // วาง queue การโจมตี [{attackerUids, targetUid}]
   const attacks = [];
 
-  for(const t of targets){
+  for(const t of rawTargets){
     const unused = avail.filter(c=>!used.has(c.uid));
     if(!unused.length) break;
 
-    let combo = null;
-    if(diff==='easy'){
-      // easy: เลือกตัวเดียวสุ่ม ถ้าตายได้เลย
-      const candidates = unused.filter(c=>c.cAtk>=t.cHp);
-      if(candidates.length) combo = [candidates[Math.floor(Math.random()*candidates.length)]];
-    } else if(diff==='med'){
-      combo = aiPickAttackers(unused, t);
-    } else {
-      combo = aiPickAttackers(unused, t);
-      if(combo){
-        const score = aiShouldAttack({cAtk:combo.reduce((s,c)=>s+c.cAtk,0),cHp:Math.min(...combo.map(c=>c.cHp))},t);
-        if(score===0) combo=null;
-      }
+    const combo = aiPickAttackers(unused, t);
+    if(!combo || !combo.length) continue;
+    const totalAtk = combo.reduce((s,c)=>s+c.cAtk, 0);
+    if(totalAtk < t.cHp) continue; // one-shot rule
+
+    // เปรียบเทียบ: ตี target นี้ vs ตีตรง vs ข้าม
+    const scoreAtk    = evalAttackTarget(t, combo);
+    const noShieldNow = !GS.me.field.find(c=>c.sh);
+    const scoreDirect = noShieldNow ? evalDirect(combo) : -Infinity;
+    const scoreSkip   = _evalState(GS); // ไม่ทำอะไร
+
+    if(diff==='easy' && Math.random()<0.4){
+      // easy: สุ่มข้ามบ้าง
+      continue;
     }
 
-    if(!combo || !combo.length) continue;
-    const totalAtk = combo.reduce((s,c)=>s+c.cAtk,0);
-    if(totalAtk < t.cHp) continue; // ไม่พอฆ่า (กฎ one-shot) ข้าม
+    if(scoreDirect > scoreAtk && scoreDirect > scoreSkip && noShieldNow){
+      // ตีตรงดีกว่า — จะเพิ่มใน direct section
+      break;
+    }
 
-    combo.forEach(c=>used.add(c.uid));
-    attacks.push({ attackerUids: combo.map(c=>c.uid), targetUid: t.uid });
+    if(scoreAtk > scoreSkip || diff!=='hard'){
+      combo.forEach(c=>used.add(c.uid));
+      attacks.push({ attackerUids: combo.map(c=>c.uid), targetUid: t.uid });
+    }
   }
 
   // ตีตรง
   const noShield = !GS.me.field.find(c=>c.sh);
   if(noShield){
     const rem = avail.filter(c=>!used.has(c.uid));
-    if(rem.length && (diff!=='easy' || Math.random()>.3)){
-      attacks.push({ attackerUids: rem.map(c=>c.uid), targetUid: 'direct' });
+    if(rem.length){
+      const sDirect = evalDirect(rem);
+      const sSkip   = _evalState(GS);
+      if(sDirect > sSkip || diff!=='hard'){
+        if(diff!=='easy' || Math.random()>.3){
+          attacks.push({ attackerUids: rem.map(c=>c.uid), targetUid: 'direct' });
+        }
+      }
     }
   }
 
-  // execute ทีละอัน ผ่าน atkTarget/doDir เหมือน PVP
-  let delay = 0;
-  for(const atk of attacks){
-    setTimeout(()=>{
-      attackers = atk.attackerUids;
-      atkMode = true;
-      if(atk.targetUid==='direct'){
-        doDir();
-      } else {
-        atkTarget(atk.targetUid);
+  // execute แบบ sequential — ตีทีละครั้ง รอ animation เสร็จแล้วค่อยตีต่อ
+  // ไม่ใช้ queue ล่วงหน้า เพราะ shield อาจหายหลังตีไปแล้ว
+  function _execNextAttack(queue, idx){
+    // ตรวจว่ายังมียูนิทที่ตีได้และยังไม่ได้ตีหลังจบ queue เดิม
+    if(idx >= queue.length){
+      // ตรวจ direct หลัง queue หมด — อาจมีตัวที่ยังไม่ได้ตีและ shield หายไปแล้ว
+      const noShieldNow = !GS.me.field.find(c=>c.sh);
+      if(noShieldNow && !GS.me.field.length){
+        // ตีตรงด้วยตัวที่เหลือทั้งหมด
+        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1);
+        if(remAtk.length){
+          _doAiAtk({ attackerUids: remAtk.map(c=>c.uid), targetUid:'direct' }, ()=>{
+            checkWin(); renderAll(); endAiTurn();
+          });
+          return;
+        }
+      } else if(noShieldNow){
+        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1);
+        if(remAtk.length && (diff!=='easy' || Math.random()>.3)){
+          _doAiAtk({ attackerUids: remAtk.map(c=>c.uid), targetUid:'direct' }, ()=>{
+            checkWin(); renderAll(); endAiTurn();
+          });
+          return;
+        }
       }
-      attackers = [];
-      atkMode = false;
-    }, delay);
-    delay += 900;
+      checkWin(); renderAll(); endAiTurn();
+      return;
+    }
+
+    const atk = queue[idx];
+    // กรอง attacker ที่ exhausted ไปแล้ว
+    const validUids = atk.attackerUids.filter(uid=>
+      GS.enemy.field.find(c=>c.uid===uid && !c.exhausted)
+    );
+    if(!validUids.length){ _execNextAttack(queue, idx+1); return; }
+
+    _doAiAtk({ attackerUids: validUids, targetUid: atk.targetUid }, ()=>{
+      _execNextAttack(queue, idx+1);
+    });
   }
 
-  setTimeout(()=>{ attackers=[]; atkMode=false; endAiTurn(); }, delay+400);
+  // helper: execute 1 attack แล้วเรียก callback หลัง animation
+  function _doAiAtk(atk, cb){
+    // ไม่ swap GS — แก้ atkTarget/doDir ให้รับ perspective แทน
+    // เลือกวิธีที่ไม่ swap เพื่อไม่ให้การ์ด AI แวบใน render
+    // โจมตีโดยตรงผ่าน combat logic แทน atkTarget
+    const attackerCards = atk.attackerUids
+      .map(uid=>GS.enemy.field.find(c=>c.uid===uid))
+      .filter(Boolean);
+    if(!attackerCards.length){ cb(); return; }
+
+    if(atk.targetUid === 'direct'){
+      // ตีตรงออร์บ — ตีทีละตัว แต่ละตัวตี 1 ดาเมจ (เหมือน PVP)
+      if(GS.me.field.find(c=>c.sh)){ cb(); return; } // มี shield ข้าม
+      let totalDmg = attackerCards.length; // 1 ดาเมจต่อตัว (กฎเกม)
+      // Jed mercenary: +1 ถ้าผู้เล่นมียูนิทในสนาม
+      const mercBonus = attackerCards.filter(c=>c.id==='s_merc').length;
+      if(mercBonus>0 && GS.me.field.length>0) totalDmg += mercBonus;
+      attackerCards.forEach(c=>{ c.exhausted=true; c.hitsDone=(c.hitsDone||0)+1; });
+      _sfx('direct');
+      GS.me.hp = Math.max(0, GS.me.hp - totalDmg);
+      log(`🎯 AI direct attack -${totalDmg} HP`,'la');
+      // wizard trigger
+      const wizInHand = GS.me.hand.find(c=>c.id==='a_wizw');
+      if(wizInHand && GS.me.field.filter(c=>!c.ignoreLimit).length<5){
+        GS.me.hand.splice(GS.me.hand.indexOf(wizInHand),1);
+        freshToField(wizInHand, GS.me.field);
+        log(`🧙‍♀️ White Wizard: Enters field from hand! Forces opponent to end turn!`,'lh');
+        const rabbit=GS.me.graveyard.find(c=>c.id==='a_rabbit');
+        if(rabbit){
+          setTimeout(()=>{
+            GS.me.graveyard.splice(GS.me.graveyard.indexOf(rabbit),1);
+            rabbit.ignoreLimit=true;
+            freshToField(rabbit,GS.me.field);
+            log(`🐰 White Wizard: Lucky Rabbit from graveyard!`,'lh');
+            renderAll(); _pushGS?.();
+          }, 900);
+        }
+      }
+      renderAll();
+      setTimeout(cb, 600);
+    } else {
+      // โจมตียูนิท
+      const target = GS.me.field.find(c=>c.uid===atk.targetUid);
+      if(!target){ cb(); return; }
+
+      // ลูกน้องตัวตลก: ถ้าหัวหน้ายังอยู่ในสนาม ตีไม่ได้
+      if(target.id==='m_jnr'){
+        const bossAlive = GS.me.field.find(c=>c.id==='m_boss');
+        if(bossAlive){ cb(); return; }
+      }
+
+      const totalAtk = attackerCards.reduce((s,c)=>s+c.cAtk,0);
+      if(totalAtk < target.cHp){ cb(); return; } // one-shot rule
+
+      _sfx('atk');
+      attackerCards.forEach(c=>{ c.exhausted=true; c.hitsDone=(c.hitsDone||0)+1; });
+      target.cHp -= totalAtk;
+      log(`🤖 AI attacks ${target.name} (ATK ${totalAtk})`,'la');
+
+      // counter stance
+      if(target.counterStance){
+        const counterAtk = target.cAtk;
+        attackerCards.forEach(ac=>{
+          ac.cHp -= counterAtk;
+          log(`🔄 Counter! ${target.name} hits back ${counterAtk}`,'lh');
+          if(ac.cHp<=0){
+            GS.enemy.field=GS.enemy.field.filter(x=>x.uid!==ac.uid);
+            GS.enemy.graveyard.push(ac);
+            log(`💀 ${ac.name} destroyed`,'la');
+          }
+        });
+        target.counterStance=false;
+      }
+
+      if(target.cHp<=0){
+        // tax
+        if(target.items) target.items.forEach(it=>{
+          if(it.ieff==='draw_on_death'){ window._taxPending=(window._taxPending||0)+1; log('📖 Tax: draw next turn','lh'); }
+        });
+        GS.me.field=GS.me.field.filter(c=>c.uid!==target.uid);
+        GS.me.graveyard.push(target);
+        log(`💀 ${target.name} destroyed`,'la');
+      }
+
+      renderAll();
+      setTimeout(cb, 700);
+    }
+  }
+
+  _execNextAttack(attacks, 0);
 }
 
 function aiTurn(){
   clearTurnTimer(); // หยุด timer เมื่อ AI เริ่มเทิร์น
+  turnNum++; // เพิ่มเทิร์นทันทีที่เปลี่ยนเป็นเทิร์น AI (เหมือน PVP)
   const diff = _aiDiff;
+  log(`─── Turn ${turnNum} starts ───`,'li');
   log(`🤖 ${GS.enemy.name} starts turn`,'li');
   drawCard('enemy',2);
 
-  const units = aiDecideUnits([...GS.enemy.hand], GS.enemy.field, diff);
+  // MCTS เลือก units ที่จะลง (simulate ไปข้างหน้าก่อนตัดสินใจ)
+  const units = mcts_chooseMoves(diff);
   const actions = aiDecideAction([...GS.enemy.hand], diff);
 
   let unitDelay=200;
   units.forEach(c=>{
     setTimeout(()=>{
-      if(!GS.enemy.hand.includes(c)) return;
+      const cur = GS.enemy.hand.find(x=>x.uid===c.uid);
+      if(!cur) return;
       if(GS.enemy.field.filter(x=>!x.ignoreLimit).length>=5) return;
-      GS.enemy.hand.splice(GS.enemy.hand.indexOf(c),1);
-      freshToField(c, GS.enemy.field);
-      log(`🤖 AI plays: ${c.name}`,'li');
-      ss(`🤖 AI plays "${c.name}"!`);
-      onPlay(c,'enemy');
+      GS.enemy.hand.splice(GS.enemy.hand.indexOf(cur),1);
+      freshToField(cur, GS.enemy.field);
+      log(`🤖 AI plays: ${cur.name}`,'li');
+      ss(`🤖 AI plays "${cur.name}"!`);
+      onPlay(cur,'enemy');
       renderAll();
     }, unitDelay);
     unitDelay+=800;
@@ -3317,7 +3914,7 @@ function endAiTurn(){
     if(c.hasSwordCurse) c.attackCount=2;
   });
 
-  turnNum++;
+  turnNum++; // เพิ่มสำหรับเทิร์นผู้เล่นถัดไป
 
   // ข้อ 2: ดอกเบี้ยทบต้น — จั่วเพิ่มตาม HP ที่เสียในเทิร์น AI
   const bonusDraw = GS.me.piggyDmgTaken||0;
@@ -3345,7 +3942,7 @@ function checkWin(){
   else if(GS.enemy.hp<=0)endGame('me','Enemy HP depleted!');
 }
 
-function endGame(winner,reason){
+function endGame(winner,reason){ _sfx(winner==='me'?'win':'lose'); stopBGM();
   isMyTurn=false;
   document.getElementById('etitle').textContent=winner==='me'?'🏆 ชนะ!':'💀 แพ้!';
   document.getElementById('emsg').textContent=reason;
@@ -3369,7 +3966,9 @@ function initGame(myDk,enemyDk){
   showSc('gs');renderAll();
   log(`🎮 ${GS.me.name} vs ${GS.enemy.name} — Game Start!`,'lh');
   log('📋 First turn: you can play cards but cannot attack yet','li');
+  _sfx('yourturn');
   ss('Click a card in hand to view details and play');
+  startTurnTimer();
 }
 
 // SCREENS
