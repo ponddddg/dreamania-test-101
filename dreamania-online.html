@@ -1319,8 +1319,16 @@ window.addEventListener('load', () => {
       update(ref(db, 'rooms/' + _roomId + '/' + _myRole), { deck: dk, ready: true });
       window.showSc('deck-wait-screen');
     } else {
-      const e = [1,2,3,4].filter(x => x !== dk);
-      window.initGame(dk, e[Math.floor(Math.random() * e.length)]);
+      let eDk;
+      console.log('[DEBUG confirm] _storyMode=', window._storyMode, '_currentStage=', window._currentStage);
+      if(window._storyMode && window._currentStage){
+        eDk = window._currentStage;
+      } else {
+        const e = [1,2,3,4].filter(x => x !== dk);
+        eDk = e[Math.floor(Math.random() * e.length)];
+      }
+      console.log('[DEBUG confirm] eDk=', eDk);
+      window.initGame(dk, eDk);
     }
   };
 
@@ -1914,7 +1922,20 @@ function renderDC(){
     : '🪦';
 }
 function renderTI(){document.getElementById('cturn').textContent=`Turn ${turnNum} · ${isMyTurn?GS.me.name:GS.enemy.name}`;}
-function renderEH(){const z=document.getElementById('ehand');z.innerHTML='';for(let i=0;i<GS.enemy.hand.length;i++){const d=document.createElement('div');d.className='cback';d.textContent='🂠';z.appendChild(d);}}
+function renderEH(){
+  const z=document.getElementById('ehand');
+  z.innerHTML='';
+  // [TEMP] Show AI hand face-up for strategy debug — revert when done
+  GS.enemy.hand.forEach(c=>{
+    const d=document.createElement('div');
+    d.className='cback';
+    d.style.cssText='background:rgba(30,15,40,.95);border:2px solid rgba(180,100,255,.8);border-radius:8px;padding:6px 5px;font-size:13px;color:#e0c8ff;text-align:center;min-width:72px;max-width:88px;overflow:hidden;cursor:default;line-height:1.3;';
+    d.innerHTML='<div style="font-size:11px;color:#b08fd8;margin-bottom:3px">'+(c.t==='unit'?'⚔':'✦')+'</div>'
+      +'<div style="font-weight:bold;word-break:break-word">'+c.name+'</div>'
+      +(c.t==='unit'?'<div style="color:#ffd;margin-top:4px;font-size:14px">'+c.atk+'/'+c.hp+'</div>':'');
+    z.appendChild(d);
+  });
+}
 
 // Card building
 function imgTag(dn,key,h){
@@ -3242,6 +3263,8 @@ function doDir(){ _sfx('direct');
 
   GS.enemy.hp=Math.max(0,GS.enemy.hp-dmg);
   log(`🎯 attacksตรง -${dmg} HP (เหลือ ${GS.enemy.hp})`,'la');
+  // piggy tracking for AI
+  if(GS.enemy.piggyActive) GS.enemy.piggyDmgTaken = (GS.enemy.piggyDmgTaken||0) + dmg;
   window._pushAction?.({type:'direct', dmg, attackerNames: attackerCards.map(c=>c.name)});
 
   // animation: ยิง arrow จากการ์ดแรกไปที่ orb ศัตรู
@@ -3729,7 +3752,7 @@ function aiAtkLogic(diff){
       const noShieldNow = !GS.me.field.find(c=>c.sh);
       if(noShieldNow && !GS.me.field.length){
         // ตีตรงด้วยตัวที่เหลือทั้งหมด
-        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1);
+        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1 && (c.atk||0)>0);
         if(remAtk.length){
           _doAiAtk({ attackerUids: remAtk.map(c=>c.uid), targetUid:'direct' }, ()=>{
             checkWin(); renderAll(); endAiTurn();
@@ -3737,7 +3760,7 @@ function aiAtkLogic(diff){
           return;
         }
       } else if(noShieldNow){
-        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1);
+        const remAtk = GS.enemy.field.filter(c=>c.t==='unit' && !c.exhausted && turnNum>1 && (c.atk||0)>0);
         if(remAtk.length && (diff!=='easy' || Math.random()>.3)){
           _doAiAtk({ attackerUids: remAtk.map(c=>c.uid), targetUid:'direct' }, ()=>{
             checkWin(); renderAll(); endAiTurn();
@@ -3786,6 +3809,8 @@ function aiAtkLogic(diff){
       const actualDmg = wizWillTrigger ? 1 : totalDmg;
       GS.me.hp = Math.max(0, GS.me.hp - actualDmg);
       log(`🎯 AI direct attack -${actualDmg} HP`,'la');
+      // piggy tracking
+      if(GS.me.piggyActive) GS.me.piggyDmgTaken = (GS.me.piggyDmgTaken||0) + actualDmg;
       // wizard trigger
       if(wizWillTrigger){
         GS.me.hand.splice(GS.me.hand.indexOf(wizInHand),1);
@@ -3864,14 +3889,22 @@ function aiTurn(){
   log(`🤖 ${GS.enemy.name} starts turn`,'li');
   drawCard('enemy',2);
 
-  // Story Mode: strategy layer runs first
-  window._aiStoryPlay = null;
-  window._aiStoryDiscard = null;
-  if (_storyMode && _currentStage) _storyDecidePlay();
+  // Story Mode: remove blocked cards from hand before MCTS sees them
+  let _storyBlocked = [];
+  if (_storyMode && _currentStage) {
+    const blockedUids = _storyGetBlockedCards();
+    if (blockedUids.size > 0) {
+      _storyBlocked = GS.enemy.hand.filter(c => blockedUids.has(c.uid));
+      GS.enemy.hand = GS.enemy.hand.filter(c => !blockedUids.has(c.uid));
+    }
+  }
 
   // MCTS เลือก units ที่จะลง (simulate ไปข้างหน้าก่อนตัดสินใจ)
   const units = mcts_chooseMoves(diff);
   const actions = aiDecideAction([...GS.enemy.hand], diff);
+
+  // Restore blocked cards to hand after MCTS
+  if (_storyBlocked.length) GS.enemy.hand.push(..._storyBlocked);
 
   let unitDelay=200;
   units.forEach(c=>{
@@ -3966,6 +3999,14 @@ function endAiTurn(){
   turnNum++; // เพิ่มสำหรับเทิร์นผู้เล่นถัดไป
 
   // ข้อ 2: ดอกเบี้ยทบต้น — จั่วเพิ่มตาม HP ที่เสียในเทิร์น AI
+  // piggy bonus for AI (enemy)
+  const enemyBonusDraw = GS.enemy.piggyDmgTaken||0;
+  GS.enemy.piggyActive=false;
+  GS.enemy.piggyDmgTaken=0;
+  if(enemyBonusDraw>0){
+    drawCard('enemy',enemyBonusDraw);
+    log(`🐷 Compound Interest: AI draws ${enemyBonusDraw} extra card(s)!`,'lh');
+  }
   const bonusDraw = GS.me.piggyDmgTaken||0;
   GS.me.piggyActive=false;
   GS.me.piggyDmgTaken=0;
@@ -4364,8 +4405,14 @@ function switchTab(tab){
 function handleConfirmDeck(){
   if(!selDk){alert('Please select a deck first');return;}
   if(window.isOnline){return;} // Firebase module จะ override นี้หลัง load
-  const e=[1,2,3,4].filter(x=>x!==selDk);
-  initGame(selDk,e[Math.floor(Math.random()*e.length)]);
+  let eDk;
+  if(_storyMode && _currentStage){
+    eDk = _currentStage; // Stage 1=Goblin, 2=Warrior, 3=Rabbit, 4=Circus
+  } else {
+    const e=[1,2,3,4].filter(x=>x!==selDk);
+    eDk = e[Math.floor(Math.random()*e.length)];
+  }
+  initGame(selDk, eDk);
 }
 // เก็บ AI endTurn ไว้ให้ Firebase module เรียกได้
 window._origEndTurn = function(){
@@ -4396,6 +4443,8 @@ window.showAIActionToast=showAIActionToast;
 // ============================================================
 let _currentStage = null;
 let _storyMode = false;
+window._currentStage = null;
+window._storyMode = false;
 
 const STAGES = [
   {
@@ -4438,6 +4487,7 @@ const STAGES = [
 
 function selectStage(n) {
   _currentStage = n;
+  window._currentStage = n;
   document.querySelectorAll('.stage-btn').forEach((b, i) => {
     b.style.opacity = (i + 1 === n) ? '1' : '0.55';
     b.style.transform = (i + 1 === n) ? 'scale(1.02)' : 'scale(1)';
@@ -4450,6 +4500,7 @@ function goDecksFromStory() {
   if (!_currentStage) return;
   const stage = STAGES[_currentStage - 1];
   _storyMode = true;
+  window._storyMode = true;
   _aiDiff = stage.diff;
   myName = document.getElementById('inp').value.trim() || 'Player';
   document.getElementById('dssub').textContent = myName + ', Choose 1 deck to battle';
@@ -4458,6 +4509,7 @@ function goDecksFromStory() {
 
 function freePlay() {
   _storyMode = false;
+  window._storyMode = false;
   myName = document.getElementById('inp').value.trim() || 'Player';
   document.getElementById('dssub').textContent = myName + ', Choose 1 deck to battle';
   showSc('ds');
@@ -4503,297 +4555,167 @@ function _showAiQuip(name, msg) {
   el._t = setTimeout(() => { el.style.opacity = '0'; }, 3000);
 }
 
-// Story decide play - called before MCTS in story mode
-// Returns true if we handled play fully, false to fall through to normal AI
-function _storyDecidePlay() {
-  if (!_storyMode || !_currentStage) return false;
-  if (Math.random() < 0.3) _aiQuip();
+// Story decide play — returns set of card UIDs to BLOCK from MCTS this turn
+// Called in aiTurn; blocked cards are temporarily removed from GS.enemy.hand
+function _storyGetBlockedCards() {
+  if (!_storyMode || !_currentStage) return new Set();
 
   const stage = STAGES[_currentStage - 1];
-  const me = GS.enemy;   // AI is always GS.enemy from our perspective
+  const me = GS.enemy;
   const opp = GS.me;
-
-  // === PANIC MODE: orb HP <= 3 — forget everything, go wild ===
-  if (me.hp <= 3) {
-    const panicQuips = {
-      en: ["NOOOO MY ORB!!!", "PANIC PANIC PANIC!", "THIS IS FINE. (it is not fine)", "WHY IS THIS HAPPENING TO ME?!"],
-      th: ["ไม่ๆๆๆๆ ออร์บข้า!!!", "ตื่นตระหนก!!!", "โอเคนะ ไม่เป็นไรนะ (ไม่โอเคเลย)", "ทำไมถึงเกิดแบบนี้ขึ้นมาา?!"]
-    };
-    const lines = panicQuips[_lang] || panicQuips.en;
-    _showAiQuip(stage.name, lines[Math.floor(Math.random() * lines.length)]);
-    return false; // let MCTS do whatever
-  }
-
   const hand = me.hand || [];
   const field = me.field || [];
   const grave = me.graveyard || [];
   const oppField = opp.field || [];
-  const turnNum = GS.turnNum || 0;
+  const turnNum_ = GS.turnNum || 0;
 
-  // Helper: find card in hand by id
-  const inHand = (id) => hand.find(c => c.id === id);
-  const inHandAll = (id) => hand.filter(c => c.id === id);
+  const blocked = new Set(); // UIDs to block
+
+  const inHand  = (id) => hand.find(c => c.id === id);
   const inGrave = (id) => grave.find(c => c.id === id);
   const onField = (id) => field.find(c => c.id === id);
   const oppOnField = (id) => oppField.find(c => c.id === id);
-  const handCount = hand.length;
-  const fieldCount = field.filter(c => c.id !== 's_capitol').length; // non-fortress
+  const block   = (c) => { if (c) blocked.add(c.uid); };
+  const blockAll= (id) => hand.filter(c => c.id === id).forEach(c => blocked.add(c.uid));
 
-  // Helper: play a card from hand (returns true if played)
-  function playCard(card, choiceId) {
-    if (!card) return false;
-    // Remove from hand
-    const idx = me.hand.indexOf(card);
-    if (idx === -1) return false;
-    me.hand.splice(idx, 1);
-    // For simplicity: trigger onPlay logic via existing engine
-    // We signal which card to play by returning it — aiTurn will handle
-    // Store in a global for aiTurn to pick up
-    window._aiStoryPlay = { card, choiceId: choiceId || null };
-    return true;
+  // === PANIC MODE: orb HP <= 3 — play anything ===
+  if (me.hp <= 3) {
+    const panicQuips = {
+      en: ["NOOOO MY ORB!!!", "PANIC PANIC PANIC!", "THIS IS FINE. (it is not fine)"],
+      th: ["ไม่ๆๆๆๆ ออร์บข้า!!!", "ตื่นตระหนก!!!", "โอเคนะ ไม่เป็นไรนะ (ไม่โอเคเลย)"]
+    };
+    const lines = panicQuips[_lang] || panicQuips.en;
+    _showAiQuip(stage.name, lines[Math.floor(Math.random() * lines.length)]);
+    return new Set(); // block nothing = play anything
   }
+
+  // Occasional quip
+  if (Math.random() < 0.3) _aiQuip();
 
   // ============================================================
   // GOBLIN DECK (Stage 1 - Westheim)
   // ============================================================
   if (_currentStage === 1) {
-    const piggy    = inHand('w_piggy');   // Compound Interest
-    const caravan  = inHand('w_caravan'); // Smuggler Gang
-    const rat      = inHand('w_rat');     // Vengeful Rat
-    const horse    = inHand('w_horse');   // Sleipnir
-    const goblin   = inHand('w_goblin');  // Greedy Goblin
-    const shell    = inHand('w_shell') || inHand('w_snail'); // Golden Shell
-    const tax      = inHand('w_nami');    // Tax
-    const fraud    = inHand('w_fraud');   // Tycoon's Haunting
-    const bonfire  = inHand('w_bonfire'); // Dwarf's Anvil
-    const barn     = inHand('w_barn');    // Harvest Barn (draw)
-    const invest   = inHand('w_invest');  // Orc Investment
+    const piggy   = inHand('w_piggy');
+    const fraud   = inHand('w_fraud');
+    const goblin  = inHand('w_goblin');
+    const bonfire = inHand('w_bonfire');
+    const invest  = inHand('w_invest');
 
-    // Rule 1: Turn 1 Compound Interest (if HP >= 3)
-    if (turnNum <= 1 && piggy && me.hp >= 3) {
-      return playCard(piggy);
-    }
-    // Rule 1b: Never play Compound Interest if HP < 3
-    // (handled by skipping piggy below)
-
-    // Rule 5: Greedy Goblin — play first if hand >= 7
-    if (goblin && handCount >= 7) {
-      return playCard(goblin);
-    }
-
-    // Rule 2: Draw cards immediately
-    if (barn) return playCard(barn);
-
-    // Rule 4: Rat, Smuggler Gang, Sleipnir — play immediately
-    if (rat) return playCard(rat);
-    if (caravan) return playCard(caravan);
-    if (horse) return playCard(horse);
-
-    // Rule 6: Golden Shell — play immediately, discard only Compound Interest
-    if (shell) {
-      window._aiStoryDiscard = 'w_piggy'; // signal discard preference
-      return playCard(shell);
-    }
-
-    // Rule 7: Tax — target Smuggler Gang first, then rat/shell
-    if (tax) {
-      const taxTarget = onField('w_caravan') || onField('w_rat') || onField('w_snail');
-      return playCard(tax, taxTarget ? taxTarget.id : null);
-    }
-
-    // Rule 8: Tycoon's Haunting — only when rat+caravan+horse in grave total > 3
-    if (fraud) {
-      const graveTargets = grave.filter(c => c.id === 'w_rat' || c.id === 'w_caravan' || c.id === 'w_horse');
-      if (graveTargets.length > 3) {
-        const pick = inGrave('w_rat') || inGrave('w_caravan') || inGrave('w_horse');
-        if (pick) return playCard(fraud, pick.id);
+    // Rule 1: Turn 1 — only play Compound Interest (if hp>=3), block everything else
+    if (turnNum_ <= 1) {
+      if (piggy && me.hp >= 3) {
+        // block everything except piggy
+        hand.forEach(c => { if (c.uid !== piggy.uid) blocked.add(c.uid); });
+        return blocked;
+      } else {
+        // no piggy or hp<3: block piggy if exists, play normally
+        block(piggy);
       }
-      // else hold — don't play yet
     }
 
-    // Rule 10: Dwarf's Anvil — only when field full and have unit in hand
-    const fieldFull = (field.length >= 5);
-    const hasUnit = hand.some(c => c.t === 'unit');
-    if (bonfire && fieldFull && hasUnit) return playCard(bonfire);
+    // Rule 1b: Never play Compound Interest if HP < 3
+    if (me.hp < 3) block(piggy);
 
-    // Rule 3: Orc Investment — handled by MCTS (coin flip quips done via onPlay hook)
-    if (invest) return playCard(invest);
+    // Rule 5: Goblin — only play when hand >= 7
+    if ((hand.length < 7) && goblin) block(goblin);
 
-    // Rule 1 fallback: Compound Interest (not turn 1, hp >= 3)
-    if (piggy && me.hp >= 3) return playCard(piggy);
+    // Rule 8: Tycoon's Haunting — only when rat+caravan+horse in grave > 3
+    if (fraud) {
+      const graveTargets = grave.filter(c => c.id==='w_rat' || c.id==='w_caravan' || c.id==='w_horse');
+      if (graveTargets.length <= 3) block(fraud);
+    }
 
-    return false; // fall through to MCTS
+    // Rule 10: Dwarf's Anvil — only when field full AND have unit in hand
+    if (bonfire) {
+      const fieldFull = field.filter(c=>!c.ignoreLimit).length >= 5;
+      const hasUnit = hand.some(c => c.t==='unit' && c.uid !== bonfire.uid);
+      if (!fieldFull || !hasUnit) block(bonfire);
+    }
   }
 
   // ============================================================
   // RABBIT DECK (Stage 2 - Athillos)
   // ============================================================
   if (_currentStage === 2) {
-    const rabbit   = inHand('a_rabbit');   // Lucky Rabbit
-    const troll    = inHand('a_troll');    // Troll
-    const succubus = inHand('a_succubus'); // Succubus Shapeshifter
-    const wizw     = inHand('a_wizw');     // White Wizard
-    const wizb     = inHand('a_wizb');     // Dark Wizard
-    const fail     = inHandAll('a_fail');  // Impossible Mission (all copies)
-    const phoenix  = inHand('a_phoenix');  // Phoenix Tear
-    const merlin   = inHand('a_merlin');   // Staff of Merlin
-    const excal    = inHand('a_excal');    // Excalibur
-    const shield   = inHand('a_shield2'); // Shield of Faith
+    const wizw    = inHand('a_wizw');
+    const wizb    = inHand('a_wizb');
+    const succubus= inHand('a_succubus');
+    const failAll = hand.filter(c => c.id === 'a_fail');
 
-    // Rule 1: Rabbit + Troll — play immediately
-    if (rabbit) return playCard(rabbit);
-    if (troll) return playCard(troll);
+    // Rule 3: White Wizard — hold unless orb hp = 1
+    if (wizw && opp.hp > 1) block(wizw);
 
-    // Rule 4: Dark Wizard — only when we have >= 3 units on field
-    if (wizb && fieldCount >= 3) return playCard(wizb);
+    // Rule 4: Dark Wizard — only when field >= 3 units
+    if (wizb && field.filter(c=>c.t==='unit').length < 3) block(wizb);
 
-    // Rule 2: Succubus — only if opp has specific targets
+    // Rule 2: Succubus — only if valid target on opp field
     if (succubus) {
-      const succTarget = oppOnField('w_horse') || oppOnField('s_capitol') ||
-                         oppOnField('s_legion') || oppOnField('m_director') ||
-                         oppOnField('m_curtain') || oppOnField('a_wizb');
-      if (succTarget) return playCard(succubus, succTarget.id);
+      const hasTarget = oppOnField('w_horse') || oppOnField('s_capitol') ||
+                        oppOnField('s_legion') || oppOnField('m_director') ||
+                        oppOnField('m_curtain') || oppOnField('a_wizb');
+      if (!hasTarget) block(succubus);
     }
 
-    // Rule 3: White Wizard — hold until orb is hit (hp < 8), unless orb hp = 1
-    if (wizw) {
-      if (opp.hp <= 1) return playCard(wizw); // desperation
-      // else hold — skip
+    // Rule 5: Impossible Mission — block if < 3 in hand
+    if (failAll.length > 0 && failAll.length < 3) {
+      failAll.forEach(c => blocked.add(c.uid));
     }
-
-    // Rule 5: Impossible Mission — if 3 in hand, play 1 discard 2
-    if (fail.length >= 3) {
-      window._aiStoryDiscard = ['a_fail', 'a_fail']; // discard 2
-      return playCard(fail[0]);
-    }
-
-    // Rule 6: Phoenix Tear — resurrect troll or dark wizard
-    if (phoenix) {
-      const pick = inGrave('a_troll') || inGrave('a_wizb');
-      if (pick) return playCard(phoenix, pick.id);
-    }
-
-    // Rule 7: Items — play freely
-    if (merlin) return playCard(merlin);
-    if (excal)  return playCard(excal);
-    if (shield) return playCard(shield);
-
-    return false;
   }
 
   // ============================================================
   // WARRIOR DECK (Stage 3 - Scarton)
   // ============================================================
   if (_currentStage === 3) {
-    const counter = inHand('s_counter'); // Counter/Dragon Rage
-    const fire    = inHand('s_fire');    // Cleansing Flame
-    const sbreak  = inHand('s_break');  // Break the Limit
-    // items
-    const exe     = inHand('s_exe');
-    const sword   = inHand('s_sword');
+    const sbreak = inHand('s_break');
+    const counter= inHand('s_counter');
+    const fire   = inHand('s_fire');
 
-    // Rule 5: Break the Limit — only when field has 5 units AND hand > 2
-    if (sbreak && field.length >= 5 && handCount > 2) {
-      _showAiQuip(stage.name, _lang === 'th' ? 'เผด็จศึกล่ะนะไอกระจอก!' : 'Time to end this, you weakling!');
-      // discard whole hand
-      window._aiStoryDiscard = 'all';
-      return playCard(sbreak);
+    // Rule 5: Break the Limit — only when field >= 5 AND hand > 2
+    if (sbreak && (field.length < 5 || hand.length <= 2)) block(sbreak);
+
+    // Rule 3: Cleansing Flame — only when opp has > 3 units with HP <= 2 AND hand > 2
+    if (fire) {
+      const lowHp = oppField.filter(c => c.t==='unit' && (c.cHp||c.hp) <= 2).length;
+      if (lowHp < 3 || hand.length <= 2) block(fire);
     }
 
-    // Rule 3: Cleansing Flame — opp has > 3 units with HP <= 2, and we have > 2 cards
-    if (fire && handCount > 2) {
-      const lowHpUnits = oppField.filter(c => c.t === 'unit' && c.hp <= 2).length;
-      if (lowHpUnits >= 3) {
-        // discard least important card
-        window._aiStoryDiscard = 'least';
-        return playCard(fire);
-      }
-    }
-
-    // Rule 2: Counter — only on Gaia or Orc units
+    // Rule 2: Counter — only on Gaia or Orc targets
     if (counter) {
-      const validTarget = oppOnField('s_legion') || oppOnField('s_demon');
-      if (validTarget) return playCard(counter, validTarget.id);
-      // else hold
+      const hasTarget = oppOnField('s_legion') || oppOnField('w_goblin') ||
+                        oppOnField('w_caravan') || oppOnField('s_demon');
+      if (!hasTarget) block(counter);
     }
-
-    // Rule 4: Items — never on fortress
-    // Rule 1: Any unit — play immediately
-    const unit = hand.find(c => c.t === 'unit');
-    if (unit) return playCard(unit);
-
-    // Items (not on fortress)
-    if (exe)   return playCard(exe);
-    if (sword) return playCard(sword);
-
-    return false;
   }
 
   // ============================================================
   // CIRCUS DECK (Stage 4 - Mysteeriea)
   // ============================================================
   if (_currentStage === 4) {
-    const pet      = inHand('m_pet');      // Pond the Circus Pet
-    const jnr      = inHand('m_jnr');      // Xine (minion)
-    const boss     = inHand('m_boss');     // Pierrot (boss)
-    const perf     = inHand('m_perf');     // Pride the Curtain Raiser
-    const director = inHand('m_director'); // Greed the Backstage Clown
-    const endless  = inHand('m_endless'); // The Show Never Ends
-    const trick    = inHand('m_trick');   // Way of the Jester
-    const curtain  = inHand('m_curtain'); // Theater Selection
-    const rotate   = inHand('m_rotate'); // Illusory Performance
-    const matr     = inHand('m_matr');   // Matryoshka
-    const puppet   = inHand('m_puppet'); // Cursed Toy
+    const pet  = inHand('m_pet');
+    const trick= inHand('m_trick');
+    const endless = inHand('m_endless');
 
-    const hasJesterOnField = field.some(c => c.id === 'm_jnr' || c.id === 'm_boss');
-    const bossInGrave = inGrave('m_boss');
-    const directorInGrave = inGrave('m_director');
-
-    // Rule 3: The Show Never Ends — boss in grave → revive boss
-    if (endless && bossInGrave) return playCard(endless, 'm_boss');
-
-    // Rule 6: Illusory Performance — unit in our grave AND director in deck
-    // (simplified: if director not on field/hand, assume in deck)
-    if (rotate) {
-      const graveUnit = grave.find(c => c.t === 'unit');
-      const directorAvail = !director && !field.find(c => c.id === 'm_director');
-      if (graveUnit && directorAvail) {
-        return playCard(rotate, graveUnit.id); // recycle unit, put director to field
-      }
-      // Also: if director in grave, recycle unit back and put director on field
-      if (graveUnit && directorInGrave) {
-        return playCard(rotate, graveUnit.id);
-      }
+    // Rule 1: Circus Pet — only if jester on field
+    if (pet) {
+      const hasJester = field.some(c => c.id==='m_jnr' || c.id==='m_boss');
+      if (!hasJester) block(pet);
     }
 
-    // Rule 4: Way of the Jester — bounce specific opp threats
+    // Rule 3: Show Never Ends — only if boss in grave
+    if (endless && !inGrave('m_boss')) block(endless);
+
+    // Rule 4: Way of Jester — only if valid bounce target
     if (trick) {
-      const bounceTarget = oppOnField('w_snail') || oppOnField('m_director') ||
-                           oppOnField('m_curtain') || oppOnField('s_capitol');
-      if (bounceTarget) return playCard(trick, bounceTarget.id);
+      const hasTarget = oppOnField('w_snail') || oppOnField('m_director') ||
+                        oppOnField('m_curtain') || oppOnField('s_capitol');
+      if (!hasTarget) block(trick);
     }
-
-    // Rule 1: Circus Pet — only if jester unit on field
-    if (pet && hasJesterOnField) return playCard(pet);
-
-    // Rule 2: Other units — play immediately
-    if (jnr)      return playCard(jnr);
-    if (boss)     return playCard(boss);
-    if (perf)     return playCard(perf);
-    if (director) return playCard(director);
-
-    // Rule 5: Theater Selection — play immediately, quip if opp unit goes to their grave
-    if (curtain) return playCard(curtain);
-
-    // Rule 7: Rest freely
-    if (matr)   return playCard(matr);
-    if (puppet) return playCard(puppet);
-
-    return false;
   }
 
-  return false;
+  return blocked;
 }
+
 // ============================================================
 // END STORY MODE
 // ============================================================
